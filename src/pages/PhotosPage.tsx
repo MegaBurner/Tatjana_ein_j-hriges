@@ -1,9 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { motion } from 'framer-motion';
 import PolaroidPhoto from '../components/PolaroidPhoto/PolaroidPhoto';
 import FilmStrip from '../components/FilmStrip/FilmStrip';
 import PageNavigation from '../components/Navigation/PageNavigation';
-import { Camera } from 'lucide-react'; // Fallback icon, but we will use a custom SVG for better look
 import './PhotosPage.css';
 
 interface PhotosPageProps {

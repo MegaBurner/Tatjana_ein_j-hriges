@@ -1,5 +1,4 @@
 import { motion } from 'framer-motion';
-import { SkipBack, SkipForward } from 'lucide-react';
 import VinylRecord from '../components/VinylRecord/VinylRecord';
 import PageNavigation from '../components/Navigation/PageNavigation';
 import './VinylPage.css';
