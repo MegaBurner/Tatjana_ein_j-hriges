@@ -1,36 +1,37 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&display=swap');
+@import "tailwindcss";
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@theme {
+  --color-bg-primary: #e6e0f8;
+  --color-bg-secondary: #f0ebf9;
+  --color-accent-rose: #f4a5ae;
+  --color-accent-rose-deep: #e07186;
+  --color-accent-lavender: #c4b5e4;
+  --color-accent-gold: #e8c77d;
+  --color-text-primary: #4a4a4a;
+  --color-text-secondary: #888888;
+  --font-sans: 'Inter', sans-serif;
+  --font-serif: 'Playfair Display', serif;
+}
 
 :root {
-  /* Hintergrund */
-  --bg-primary: #E6E0F8;
-  --bg-secondary: #F0EBF9;
-  
-  /* Akzente */
-  --accent-rose: #F4A5AE;
-  --accent-rose-deep: #E07186;
-  --accent-lavender: #C4B5E4;
-  
-  /* Text */
-  --text-primary: #4A4A4A;
+  /* Aliase für bestehende Komponenten-CSS (nicht entfernen) */
+  --bg-primary: #e6e0f8;
+  --bg-secondary: #f0ebf9;
+  --accent-rose: #f4a5ae;
+  --accent-rose-deep: #e07186;
+  --accent-lavender: #c4b5e4;
+  --accent-gold: #e8c77d;
+  --text-primary: #4a4a4a;
   --text-secondary: #888888;
   --text-light: #ffffff;
-  
-  /* Schatten */
-  --shadow-soft: rgba(155, 137, 196, 0.2);
-  --shadow-medium: rgba(0, 0, 0, 0.15);
-  
-  /* Spacing */
+  --shadow-soft: rgba(155, 137, 196, 0.18);
+  --shadow-medium: rgba(74, 60, 110, 0.14);
   --space-xs: 0.5rem;
   --space-sm: 1rem;
   --space-md: 2rem;
   --space-lg: 4rem;
   --space-xl: 8rem;
-  
-  /* Border Radius */
   --radius-sm: 8px;
   --radius-md: 16px;
   --radius-lg: 24px;
@@ -38,20 +39,30 @@
 }
 
 body {
-  background-color: var(--bg-primary);
-  background-image: repeating-linear-gradient(
-    90deg,
-    var(--bg-primary) 0px,
-    var(--bg-primary) 40px,
-    var(--bg-secondary) 40px,
-    var(--bg-secondary) 80px
-  );
+  /* Weicher radialer Verlauf statt Streifen — die 3D-Szene übernimmt die Textur */
+  background:
+    radial-gradient(1200px 800px at 20% 10%, rgba(244, 165, 174, 0.25), transparent 60%),
+    radial-gradient(1000px 700px at 80% 90%, rgba(196, 181, 228, 0.35), transparent 60%),
+    linear-gradient(180deg, var(--bg-secondary), var(--bg-primary));
+  background-attachment: fixed;
   color: var(--text-primary);
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-sans);
   margin: 0;
   min-height: 100vh;
 }
 
+h1, h2 {
+  font-family: var(--font-serif);
+}
+
 html {
   scroll-behavior: smooth;
+}
+
+/* Glassmorphism-Basis für Karten und Navigation */
+.glass {
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.65);
 }
