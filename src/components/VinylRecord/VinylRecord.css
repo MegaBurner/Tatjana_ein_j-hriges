@@ -187,3 +187,15 @@
     width: 50px;
   }
 }
+
+.vinyl-canvas-wrapper {
+  width: 340px;
+  height: 340px;
+}
+
+@media (max-width: 480px) {
+  .vinyl-canvas-wrapper {
+    width: 260px;
+    height: 260px;
+  }
+}

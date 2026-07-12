@@ -1,6 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { Play, Pause, RotateCcw, Volume2, VolumeX, SkipBack, SkipForward } from 'lucide-react';
+import { useWebGL } from '../../three/hooks/useWebGL';
+import SceneErrorBoundary from '../../three/SceneErrorBoundary';
 import './VinylRecord.css';
+
+const Vinyl3D = lazy(() => import('../../three/Vinyl3D'));
 
 interface VinylRecordProps {
   audioRef: React.RefObject<HTMLAudioElement | null>;
@@ -9,10 +13,41 @@ interface VinylRecordProps {
   onPrevSong?: () => void;
 }
 
+interface CssVinylProps {
+  isPlaying: boolean;
+  coverImage?: string;
+}
+
+const CssVinylFallback = ({ isPlaying, coverImage }: CssVinylProps) => (
+  <div className={`vinyl-record ${isPlaying ? 'spinning' : ''}`}>
+    <div className="vinyl-label">
+      {coverImage && (
+        <img
+          src={coverImage}
+          alt="Album Cover"
+          className="vinyl-cover-img"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            borderRadius: '50%',
+            zIndex: 1
+          }}
+        />
+      )}
+      <div className="vinyl-hole" style={{ zIndex: 2, position: 'relative' }} />
+    </div>
+  </div>
+);
+
 const VinylRecord = ({ audioRef, coverImage, onNextSong, onPrevSong }: VinylRecordProps) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(0.7);
+  const hasWebGL = useWebGL();
 
   // Sync state with audio events
   useEffect(() => {
@@ -74,30 +109,21 @@ const VinylRecord = ({ audioRef, coverImage, onNextSong, onPrevSong }: VinylReco
   return (
     <div className="vinyl-wrapper">
       {/* Vinyl Disc */}
-      <div 
-        className={`vinyl-record ${isPlaying ? 'spinning' : ''}`}
-      >
-        <div className="vinyl-label">
-          {coverImage && (
-            <img 
-              src={coverImage} 
-              alt="Album Cover" 
-              className="vinyl-cover-img"
-              style={{ 
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%', 
-                height: '100%', 
-                objectFit: 'cover', 
-                borderRadius: '50%',
-                zIndex: 1
-              }}
-            />
-          )}
-          <div className="vinyl-hole" style={{ zIndex: 2, position: 'relative' }} />
+      {hasWebGL ? (
+        <div className="vinyl-canvas-wrapper">
+          <SceneErrorBoundary
+            fallback={<CssVinylFallback isPlaying={isPlaying} coverImage={coverImage} />}
+          >
+            <Suspense
+              fallback={<CssVinylFallback isPlaying={isPlaying} coverImage={coverImage} />}
+            >
+              <Vinyl3D audioRef={audioRef} coverImage={coverImage} />
+            </Suspense>
+          </SceneErrorBoundary>
         </div>
-      </div>
+      ) : (
+        <CssVinylFallback isPlaying={isPlaying} coverImage={coverImage} />
+      )}
 
       {/* Audio Controls */}
       <div className="audio-controls">
