@@ -6,6 +6,8 @@ import VinylPage from './pages/VinylPage';
 import LetterPage from './pages/LetterPage';
 import PeonyPage from './pages/PeonyPage';
 import CanvasBackgroundEffects from './components/Effects/CanvasBackgroundEffects';
+import BackgroundScene from './three/BackgroundScene';
+import { detectWebGL } from './three/hooks/useWebGL';
 
 // Memory images from public/memories/
 // Helper to handle base path for GitHub Pages
@@ -41,6 +43,8 @@ const songs = [
   { src: resolvePath('/song.mp3'), cover: resolvePath('/song.jpg') },
   { src: resolvePath('/Les.mp3'), cover: resolvePath('/les.jpeg') }
 ];
+
+const HAS_WEBGL = detectWebGL();
 
 function App() {
   const [currentPage, setCurrentPage] = useState(0);
@@ -99,8 +103,8 @@ function App() {
         onEnded={nextSong}
       />
       
-      {/* Global Background Effects (Hearts/Stars) - High Performance Canvas */}
-      <CanvasBackgroundEffects />
+      {/* Global Background Effects - 3D wenn möglich, sonst 2D-Canvas */}
+      {HAS_WEBGL ? <BackgroundScene /> : <CanvasBackgroundEffects />}
 
       <AnimatePresence mode="wait">
         {currentPage === 0 && (
