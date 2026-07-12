@@ -151,7 +151,7 @@ const PhotosPage = ({ images, currentPage, totalPages, onNext, onPrev }: PhotosP
             }}
           >
             <span style={{ fontSize: '1.2rem' }}>👆</span> 
-            <span style={{ fontStyle: 'italic' }}>
+            <span style={{ fontStyle: 'italic', fontFamily: 'var(--font-serif)' }}>
               Diashow &mdash; Warten für mehr
             </span>
           </motion.div>
