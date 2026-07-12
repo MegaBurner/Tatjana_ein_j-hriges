@@ -97,12 +97,12 @@ const PhotosPage = ({ images, currentPage, totalPages, onNext, onPrev }: PhotosP
 
   return (
     <div className="content-page photos-page-container">
-      <motion.h2 
+      <motion.h2
         className="page-title photo-title"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6 }}
-        style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic" }}
+        style={{ fontStyle: 'italic' }}
       >
         Ein schönes jahr mit der schönsten person ❤️
       </motion.h2>
@@ -151,7 +151,7 @@ const PhotosPage = ({ images, currentPage, totalPages, onNext, onPrev }: PhotosP
             }}
           >
             <span style={{ fontSize: '1.2rem' }}>👆</span> 
-            <span style={{ fontStyle: 'italic', fontFamily: "'Playfair Display', serif" }}>
+            <span style={{ fontStyle: 'italic' }}>
               Diashow &mdash; Warten für mehr
             </span>
           </motion.div>
