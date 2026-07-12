@@ -37,6 +37,11 @@ function CoverLabel({ coverImage }: { coverImage: string }) {
     clone.needsUpdate = true;
     return clone;
   }, [rawTexture]);
+  // Dispose the cloned texture on unmount and whenever a new cover swaps it in,
+  // so cover swaps don't leak GPU memory (the mesh never unmounts on Next/Previous).
+  useEffect(() => {
+    return () => texture.dispose();
+  }, [texture]);
   return (
     <mesh position={[0, 0.026, 0]} rotation-x={-Math.PI / 2}>
       <circleGeometry args={[0.52, 64]} />
