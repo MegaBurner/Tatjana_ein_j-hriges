@@ -95,7 +95,7 @@ function App() {
   }, [currentSongIndex, currentPage]);
 
   return (
-    <div className="overflow-hidden relative">
+    <div className="relative min-h-dvh overflow-x-hidden">
       {/* Persistent Audio Element */}
       <audio 
         ref={audioRef} 
