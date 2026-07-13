@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import { useScroll, useTexture } from '@react-three/drei';
 import * as THREE from 'three';
 import { sectionProgress, sectionVisibility } from '../useSectionProgress';
+import { getSoftShadowTexture } from '../softShadow';
 import type { SectionProps } from '../types';
 
 type ScrollState = ReturnType<typeof useScroll>;
@@ -62,9 +63,18 @@ function Page({
 
   return (
     <group ref={hingeRef}>
+      {/* Weißer Polaroid-Rahmen hinter jedem Foto — deutet Seitenkarton/-tiefe an */}
+      <mesh position={[PAGE_WIDTH / 2, 0, 0.0004]}>
+        <planeGeometry args={[PAGE_WIDTH * 1.06, PAGE_HEIGHT * 1.06]} />
+        <meshStandardMaterial color="#ffffff" roughness={0.8} />
+      </mesh>
       <mesh position={[PAGE_WIDTH / 2, 0, 0.001]}>
         <planeGeometry args={[PAGE_WIDTH, PAGE_HEIGHT]} />
         <meshBasicMaterial map={front} />
+      </mesh>
+      <mesh position={[PAGE_WIDTH / 2, 0, -0.0004]} rotation={[0, Math.PI, 0]}>
+        <planeGeometry args={[PAGE_WIDTH * 1.06, PAGE_HEIGHT * 1.06]} />
+        <meshStandardMaterial color="#ffffff" roughness={0.8} />
       </mesh>
       <mesh position={[PAGE_WIDTH / 2, 0, -0.001]} rotation={[0, Math.PI, 0]}>
         <planeGeometry args={[PAGE_WIDTH, PAGE_HEIGHT]} />
@@ -105,6 +115,7 @@ export const PhotosScene = ({ index }: SectionProps) => {
   const scroll = useScroll();
   const rootRef = useRef<THREE.Group>(null);
   const coverRef = useRef<THREE.Group>(null);
+  const shadowTexture = getSoftShadowTexture();
 
   useFrame((_, delta) => {
     const root = rootRef.current;
@@ -122,6 +133,18 @@ export const PhotosScene = ({ index }: SectionProps) => {
 
   return (
     <group ref={rootRef} position={[0, -0.3, 0]} rotation={[-0.35, 0.12, 0]}>
+      {/* Weicher Kontaktschatten unter dem gesamten Buch */}
+      <mesh position={[PAGE_WIDTH / 2, -(PAGE_HEIGHT / 2 + 0.18), -0.2]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[2.6, 2.0]} />
+        <meshBasicMaterial
+          map={shadowTexture}
+          transparent
+          opacity={0.35}
+          depthWrite={false}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+
       {/* Buchrücken */}
       <mesh position={[0, 0, -0.02]}>
         <boxGeometry args={[0.05, PAGE_HEIGHT + 0.1, 0.12]} />
@@ -142,15 +165,21 @@ export const PhotosScene = ({ index }: SectionProps) => {
         <PhotoPages scroll={scroll} sectionIndex={index} />
       </Suspense>
 
-      {/* Vorderer Einband (öffnet sich) */}
+      {/* Vorderer Einband (öffnet sich) — Creme-Gold-Creme-Sandwich, damit sowohl
+          die geschlossene Außenseite als auch die geöffnete Innenseite cremefarben
+          bleiben; das Gold schimmert nur als dünner Rand durch (siehe Fix 3). */}
       <group ref={coverRef}>
         <mesh position={[PAGE_WIDTH / 2, 0, 0.036]}>
           <boxGeometry args={[PAGE_WIDTH + 0.1, PAGE_HEIGHT + 0.1, 0.03]} />
           <meshStandardMaterial color="#fdf6ec" roughness={0.55} />
         </mesh>
-        <mesh position={[PAGE_WIDTH / 2, 0, 0.017]}>
-          <boxGeometry args={[PAGE_WIDTH + 0.14, PAGE_HEIGHT + 0.14, 0.02]} />
+        <mesh position={[PAGE_WIDTH / 2, 0, 0.02]}>
+          <boxGeometry args={[PAGE_WIDTH + 0.14, PAGE_HEIGHT + 0.14, 0.012]} />
           <meshStandardMaterial color="#e8c77d" roughness={0.4} metalness={0.2} />
+        </mesh>
+        <mesh position={[PAGE_WIDTH / 2, 0, 0.006]}>
+          <boxGeometry args={[PAGE_WIDTH + 0.1, PAGE_HEIGHT + 0.1, 0.01]} />
+          <meshStandardMaterial color="#fdf6ec" roughness={0.55} />
         </mesh>
       </group>
     </group>

@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Music, VolumeX } from 'lucide-react';
 import { detectWebGL } from './three/hooks/useWebGL';
 import PDFModal from './components/PDFModal/PDFModal';
+import DotRail from './experience/DotRail';
 import type { Song } from './experience/types';
 
 const Experience = lazy(() => import('./experience/Experience'));
@@ -114,6 +115,8 @@ function App() {
       >
         {isPlaying ? <Music size={18} /> : <VolumeX size={18} />}
       </button>
+
+      <DotRail />
 
       <PDFModal
         isOpen={letterOpen}

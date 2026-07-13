@@ -6,8 +6,10 @@ import { sectionProgress, sectionVisibility } from '../useSectionProgress';
 import type { SectionProps } from '../types';
 
 const PLAY_SPEED = 1.6; // rad/s
-const REST_ANGLE = -0.5;
+const REST_ANGLE = -0.85;
 const PLAY_ANGLE = 0;
+const ARM_REST_Y = 0.06;
+const ARM_PLAY_Y = 0.015;
 
 /** Konzentrische Rillen als Bump-Map, einmalig Canvas-generiert (siehe src/three/Vinyl3D.tsx). */
 function makeGrooveTexture(): THREE.CanvasTexture {
@@ -100,13 +102,17 @@ function Disc({
 function Tonearm({ audioRef }: { audioRef: SectionProps['audioRef'] }) {
   const armRef = useRef<THREE.Group>(null);
   const angle = useRef(REST_ANGLE);
+  const armY = useRef(ARM_REST_Y);
 
   useFrame((_, delta) => {
     const isPlaying = audioRef.current ? !audioRef.current.paused : false;
-    const target = isPlaying ? PLAY_ANGLE : REST_ANGLE;
-    angle.current = THREE.MathUtils.damp(angle.current, target, 2.5, delta);
+    const targetAngle = isPlaying ? PLAY_ANGLE : REST_ANGLE;
+    const targetY = isPlaying ? ARM_PLAY_Y : ARM_REST_Y;
+    angle.current = THREE.MathUtils.damp(angle.current, targetAngle, 2.5, delta);
+    armY.current = THREE.MathUtils.damp(armY.current, targetY, 2.5, delta);
     if (armRef.current) {
       armRef.current.rotation.y = angle.current;
+      armRef.current.position.y = armY.current;
     }
   });
 
@@ -124,6 +130,11 @@ function Tonearm({ audioRef }: { audioRef: SectionProps['audioRef'] }) {
         <mesh position={[-1.13, 0.015, 0]} rotation={[0, 0, 0.3]}>
           <boxGeometry args={[0.16, 0.05, 0.1]} />
           <meshStandardMaterial color="#232323" roughness={0.5} />
+        </mesh>
+        {/* Rote Nadeleinheit an der Kopfshell-Spitze — sichtbares "Needle Drop"-Detail */}
+        <mesh position={[-1.21, 0.005, 0]} rotation={[0, 0, 0.3]}>
+          <boxGeometry args={[0.05, 0.03, 0.06]} />
+          <meshStandardMaterial color="#c0392b" roughness={0.4} />
         </mesh>
       </group>
     </group>

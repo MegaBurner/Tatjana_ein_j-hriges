@@ -3,6 +3,8 @@ import { Canvas, useThree } from '@react-three/fiber';
 import { ScrollControls, Scroll } from '@react-three/drei';
 import { SECTIONS } from './sections';
 import { PAGES } from './constants';
+import SnapController from './SnapController';
+import AmbientLayer from './AmbientLayer';
 import type { ExperienceProps } from './types';
 import './experience.css';
 
@@ -35,6 +37,8 @@ const Experience = (props: ExperienceProps) => {
       <pointLight position={[-4, 2, -3]} intensity={0.6} color="#f4a5ae" />
       <Suspense fallback={null}>
         <ScrollControls pages={PAGES} damping={0.18}>
+          <SnapController />
+          <AmbientLayer />
           <Scroll>
             <Scenes {...props} />
           </Scroll>

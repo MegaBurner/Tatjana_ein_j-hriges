@@ -168,3 +168,65 @@
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.18); }
 }
+
+.exp-dotrail {
+  position: fixed;
+  right: 1.25rem;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 150;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.exp-dot {
+  pointer-events: auto;
+  box-sizing: border-box;
+  width: 20px;
+  height: 20px;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.exp-dot:focus-visible {
+  outline: 2px solid var(--accent-rose-deep);
+  outline-offset: 2px;
+}
+
+.exp-dot-mark {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.18);
+  transform: scale(1);
+  transition: transform 0.3s ease, background 0.3s ease, box-shadow 0.3s ease;
+}
+
+.exp-dot.active .exp-dot-mark {
+  background: var(--accent-rose-deep);
+  transform: scale(1.35);
+  box-shadow: 0 0 10px 2px rgba(224, 113, 134, 0.45);
+}
+
+@media (max-width: 480px) {
+  .exp-dotrail {
+    right: 0.75rem;
+    gap: 0.4rem;
+  }
+
+  .exp-dot {
+    width: 18px;
+    height: 18px;
+    padding: 5px;
+  }
+}

@@ -4,6 +4,7 @@ import { useScroll } from '@react-three/drei';
 import * as THREE from 'three';
 import { sectionProgress, sectionVisibility } from '../useSectionProgress';
 import { usePrefersReducedMotion } from '../../three/hooks/useWebGL';
+import { getSoftShadowTexture } from '../softShadow';
 import type { SectionProps } from '../types';
 
 type ScrollState = ReturnType<typeof useScroll>;
@@ -17,6 +18,73 @@ const FLAP_OPEN_SPAN = 0.3;
 const LETTER_RISE_START = 0.25;
 const LETTER_RISE_SPAN = 0.3;
 const HEART_COUNT = 5;
+const PAPER_GRAIN_SIZE = 256;
+
+interface LetterLine {
+  y: number;
+  width: number;
+}
+
+const LETTER_LINES: LetterLine[] = [
+  { y: 0.34, width: 0.62 },
+  { y: 0.24, width: 0.5 },
+  { y: 0.14, width: 0.58 },
+  { y: 0.04, width: 0.4 },
+  { y: -0.06, width: 0.55 },
+  { y: -0.16, width: 0.36 },
+  { y: -0.26, width: 0.5 },
+];
+
+/** Sehr kontrastarme Papier-Speckle-Textur auf Cremeton — Canvas-Singleton. */
+function makePaperGrainTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = PAPER_GRAIN_SIZE;
+  canvas.height = PAPER_GRAIN_SIZE;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return new THREE.CanvasTexture(canvas);
+  }
+  ctx.fillStyle = '#fdf6ec';
+  ctx.fillRect(0, 0, PAPER_GRAIN_SIZE, PAPER_GRAIN_SIZE);
+  const imageData = ctx.getImageData(0, 0, PAPER_GRAIN_SIZE, PAPER_GRAIN_SIZE);
+  const data = imageData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const speckle = (Math.random() - 0.5) * 14;
+    data[i] = THREE.MathUtils.clamp(data[i] + speckle, 0, 255);
+    data[i + 1] = THREE.MathUtils.clamp(data[i + 1] + speckle, 0, 255);
+    data[i + 2] = THREE.MathUtils.clamp(data[i + 2] + speckle, 0, 255);
+  }
+  ctx.putImageData(imageData, 0, 0);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  return texture;
+}
+
+let paperGrainTexture: THREE.CanvasTexture | null = null;
+function getPaperGrainTexture(): THREE.CanvasTexture {
+  paperGrainTexture ??= makePaperGrainTexture();
+  return paperGrainTexture;
+}
+
+interface FlapEdgeTrim {
+  length: number;
+  angle: number;
+  midX: number;
+  midY: number;
+}
+
+/** Zwei dünne Gold-Randlinien entlang der oberen (schrägen) Kanten der Dreiecksklappe. */
+function makeFlapEdgeTrims(halfWidth: number, height: number): [FlapEdgeTrim, FlapEdgeTrim] {
+  const length = Math.sqrt(halfWidth * halfWidth + height * height);
+  const angleLeft = Math.atan2(-height, halfWidth);
+  const angleRight = Math.atan2(-height, -halfWidth);
+  return [
+    { length, angle: angleLeft, midX: -halfWidth / 2, midY: -height / 2 },
+    { length, angle: angleRight, midX: halfWidth / 2, midY: -height / 2 },
+  ];
+}
 
 interface HeartSeed {
   angle: number;
@@ -108,12 +176,21 @@ function Letter({ scroll, index }: { scroll: ScrollState; index: number }) {
         <boxGeometry args={[ENVELOPE_WIDTH * 0.82, ENVELOPE_HEIGHT * 0.82, 0.02]} />
         <meshStandardMaterial color="#fffdf8" roughness={0.7} />
       </mesh>
-      {[0.28, 0.14, 0, -0.14, -0.28].map((y, i) => (
-        <mesh key={i} position={[0, y, 0.012]}>
-          <boxGeometry args={[ENVELOPE_WIDTH * 0.6 - Math.abs(y) * 0.3, 0.02, 0.001]} />
-          <meshStandardMaterial color="#e8c77d" roughness={0.5} transparent opacity={0.55} />
+      {LETTER_LINES.map((line, i) => (
+        <mesh key={i} position={[0, line.y, 0.012]}>
+          <boxGeometry args={[ENVELOPE_WIDTH * line.width, 0.012, 0.001]} />
+          <meshStandardMaterial color="#e8c77d" roughness={0.5} transparent opacity={0.65} />
         </mesh>
       ))}
+      {/* Kleines Rosa-Herz als Signatur, unten rechts */}
+      <mesh
+        position={[ENVELOPE_WIDTH * 0.3, -ENVELOPE_HEIGHT * 0.32, 0.014]}
+        rotation={[0, 0, Math.PI / 4]}
+        scale={0.05}
+      >
+        <octahedronGeometry args={[1, 0]} />
+        <meshStandardMaterial color="#e07186" roughness={0.4} />
+      </mesh>
     </group>
   );
 }
@@ -123,10 +200,15 @@ export const LetterScene = ({ index }: SectionProps) => {
   const reducedMotion = usePrefersReducedMotion();
   const rootRef = useRef<THREE.Group>(null);
   const flapRef = useRef<THREE.Group>(null);
-  const flapShape = useMemo(
-    () => makeFlapShape(ENVELOPE_WIDTH * 0.5, ENVELOPE_HEIGHT * 0.55),
-    []
+  const flapHalfWidth = ENVELOPE_WIDTH * 0.5;
+  const flapHeight = ENVELOPE_HEIGHT * 0.55;
+  const flapShape = useMemo(() => makeFlapShape(flapHalfWidth, flapHeight), [flapHalfWidth, flapHeight]);
+  const flapTrims = useMemo(
+    () => makeFlapEdgeTrims(flapHalfWidth, flapHeight),
+    [flapHalfWidth, flapHeight]
   );
+  const grainTexture = getPaperGrainTexture();
+  const shadowTexture = getSoftShadowTexture();
 
   useFrame((_, delta) => {
     const root = rootRef.current;
@@ -148,6 +230,18 @@ export const LetterScene = ({ index }: SectionProps) => {
 
   return (
     <group ref={rootRef} position={[0, -0.1, 0]} rotation={[0.18, -0.22, 0.05]}>
+      {/* Weicher Kontaktschatten unter dem Umschlag */}
+      <mesh position={[0, -ENVELOPE_HEIGHT * 0.7, -0.15]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[2.4, 1.8]} />
+        <meshBasicMaterial
+          map={shadowTexture}
+          transparent
+          opacity={0.35}
+          depthWrite={false}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+
       {/* Umschlagkörper (dunkleres Creme als Innenfütterung) */}
       <mesh position={[0, 0, -0.02]}>
         <boxGeometry args={[ENVELOPE_WIDTH, ENVELOPE_HEIGHT, 0.06]} />
@@ -156,10 +250,16 @@ export const LetterScene = ({ index }: SectionProps) => {
 
       <Letter scroll={scroll} index={index} />
 
-      {/* Vorderseite des Umschlags */}
+      {/* Vorderseite des Umschlags — mit feinem Papierkorn (Map + Bump) */}
       <mesh position={[0, 0, 0.015]}>
         <boxGeometry args={[ENVELOPE_WIDTH, ENVELOPE_HEIGHT, 0.02]} />
-        <meshStandardMaterial color="#fdf6ec" roughness={0.65} />
+        <meshStandardMaterial
+          color="#ffffff"
+          map={grainTexture}
+          bumpMap={grainTexture}
+          bumpScale={0.02}
+          roughness={0.65}
+        />
       </mesh>
 
       {/* Untere Dreiecksklappen (statisch, angedeutet über verjüngte Boxen) */}
@@ -176,8 +276,22 @@ export const LetterScene = ({ index }: SectionProps) => {
       <group position={[0, ENVELOPE_HEIGHT / 2, 0.03]} ref={flapRef}>
         <mesh>
           <shapeGeometry args={[flapShape]} />
-          <meshStandardMaterial color="#fdf6ec" roughness={0.65} side={THREE.DoubleSide} />
+          <meshStandardMaterial
+            color="#ffffff"
+            map={grainTexture}
+            bumpMap={grainTexture}
+            bumpScale={0.02}
+            roughness={0.65}
+            side={THREE.DoubleSide}
+          />
         </mesh>
+        {/* Dünne Gold-Ränder entlang der beiden oberen (schrägen) Klappenkanten */}
+        {flapTrims.map((trim, i) => (
+          <mesh key={i} position={[trim.midX, trim.midY, 0.004]} rotation={[0, 0, trim.angle]}>
+            <boxGeometry args={[trim.length, 0.02, 0.006]} />
+            <meshStandardMaterial color="#e8c77d" roughness={0.35} metalness={0.5} />
+          </mesh>
+        ))}
         {/* Wachssiegel, mittig auf der Klappe */}
         <mesh position={[0, -ENVELOPE_HEIGHT * 0.3, 0.01]}>
           <cylinderGeometry args={[0.16, 0.16, 0.05, 24]} />
