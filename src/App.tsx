@@ -1,8 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
 import { Music, VolumeX } from "lucide-react";
 import { detectWebGL } from "./three/hooks/useWebGL";
-import PDFModal from "./components/PDFModal/PDFModal";
+import LetterModal from "./components/LetterModal/LetterModal";
 import DotRail from "./experience/DotRail";
 import "./experience/experience.css";
 import type { Song } from "./experience/types";
@@ -34,12 +33,10 @@ function App() {
   const [songIndex, setSongIndex] = useState(0);
   const [isMusicStarted, setIsMusicStarted] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [letterOpen, setLetterOpen] = useState(false);
-  // ?nointro=1 überspringt das Intro-Overlay (Deep-Links & Screenshot-Verifikation)
-  const [introDone, setIntroDone] = useState(() =>
-    new URLSearchParams(window.location.search).has("nointro"),
+  // ?letter=1 öffnet das Brief-Modal direkt (Sharing & Screenshot-Verifikation)
+  const [letterOpen, setLetterOpen] = useState(() =>
+    new URLSearchParams(window.location.search).has("letter"),
   );
-
   const nextSong = () => setSongIndex((prev) => (prev + 1) % songs.length);
   const prevSong = () =>
     setSongIndex((prev) => (prev - 1 + songs.length) % songs.length);
@@ -49,17 +46,6 @@ function App() {
     if (!audio) return;
     setIsMusicStarted(true);
     void audio.play().catch(() => undefined);
-  };
-
-  // Browser blockieren Autoplay ohne Nutzer-Geste (NotAllowedError) — daher
-  // startet die Musik erst über den expliziten Klick im Intro-Overlay.
-  const handleStartWithMusic = () => {
-    startMusic();
-    setIntroDone(true);
-  };
-
-  const handleSkipMusic = () => {
-    setIntroDone(true);
   };
 
   const toggleMusic = () => {
@@ -72,6 +58,27 @@ function App() {
       audio.pause();
     }
   };
+
+  // Kein Intro-Gate (User-Wunsch): Musik startet so früh, wie Browser es
+  // erlauben — Autoplay ohne Geste ist blockiert, daher startet der erste
+  // Klick/Tap/Tastendruck irgendwo auf der Seite die Musik automatisch.
+  useEffect(() => {
+    const removeListeners = () => {
+      window.removeEventListener("pointerdown", autoStart);
+      window.removeEventListener("keydown", autoStart);
+    };
+    const autoStart = () => {
+      const audio = audioRef.current;
+      if (audio && audio.paused) {
+        setIsMusicStarted(true);
+        void audio.play().catch(() => undefined);
+      }
+      removeListeners();
+    };
+    window.addEventListener("pointerdown", autoStart);
+    window.addEventListener("keydown", autoStart);
+    return removeListeners;
+  }, []);
 
   // Play/Pause-Status vom Audio-Element spiegeln
   useEffect(() => {
@@ -144,47 +151,7 @@ function App() {
 
       <DotRail />
 
-      <PDFModal
-        isOpen={letterOpen}
-        onClose={() => setLetterOpen(false)}
-        pdfUrl={resolvePath("/notiz.pdf")}
-      />
-
-      <AnimatePresence>
-        {!introDone && (
-          <motion.div
-            className="exp-intro"
-            initial={{ opacity: 1 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0, pointerEvents: "none" }}
-            transition={{ duration: 0.6 }}
-          >
-            <div className="exp-intro-card">
-              <h1 className="exp-intro-title">Für Tatjana ♥</h1>
-              <p className="exp-intro-text">
-                Eine kleine Reise durch unser Jahr
-              </p>
-              <div className="exp-intro-actions">
-                <button
-                  type="button"
-                  className="exp-btn primary"
-                  onClick={handleStartWithMusic}
-                  autoFocus
-                >
-                  Mit Musik starten
-                </button>
-                <button
-                  type="button"
-                  className="exp-intro-skip"
-                  onClick={handleSkipMusic}
-                >
-                  Ohne Musik
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <LetterModal isOpen={letterOpen} onClose={() => setLetterOpen(false)} />
     </div>
   );
 }

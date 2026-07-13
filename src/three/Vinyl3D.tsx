@@ -1,7 +1,7 @@
-import { Suspense, useMemo, useRef, useEffect } from 'react';
-import { Canvas, useFrame, useLoader } from '@react-three/fiber';
-import * as THREE from 'three';
-import { usePrefersReducedMotion } from './hooks/useWebGL';
+import { Suspense, useMemo, useRef, useEffect } from "react";
+import { Canvas, useFrame, useLoader } from "@react-three/fiber";
+import * as THREE from "three";
+import { usePrefersReducedMotion } from "./hooks/useWebGL";
 
 interface Vinyl3DProps {
   audioRef: React.RefObject<HTMLAudioElement | null>;
@@ -13,13 +13,13 @@ const PLAY_SPEED = 1.6; // rad/s (~33 1/3 UPM Gefühl, leicht überhöht)
 /** Konzentrische Rillen als Bump-Map, einmalig Canvas-generiert. */
 function makeGrooveTexture(): THREE.CanvasTexture {
   const size = 512;
-  const canvas = document.createElement('canvas');
+  const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
-  const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = '#808080';
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#808080";
   ctx.fillRect(0, 0, size, size);
-  ctx.strokeStyle = '#6a6a6a';
+  ctx.strokeStyle = "#6a6a6a";
   ctx.lineWidth = 1;
   for (let r = 60; r < size / 2 - 4; r += 3) {
     ctx.beginPath();
@@ -72,8 +72,8 @@ function Disc({ audioRef, coverImage }: Vinyl3DProps) {
         y: (e.clientY / window.innerHeight - 0.5) * 0.18,
       };
     };
-    window.addEventListener('pointermove', onMove, { passive: true });
-    return () => window.removeEventListener('pointermove', onMove);
+    window.addEventListener("pointermove", onMove, { passive: true });
+    return () => window.removeEventListener("pointermove", onMove);
   }, [reducedMotion]);
 
   useFrame((_, delta) => {
@@ -82,17 +82,23 @@ function Disc({ audioRef, coverImage }: Vinyl3DProps) {
       speed.current,
       isPlaying ? PLAY_SPEED : 0,
       1.8,
-      delta
+      delta,
     );
     if (spinRef.current) {
       spinRef.current.rotation.y += speed.current * delta;
     }
     if (tiltRef.current && !reducedMotion) {
       tiltRef.current.rotation.x = THREE.MathUtils.damp(
-        tiltRef.current.rotation.x, pointerTarget.current.y, 3, delta
+        tiltRef.current.rotation.x,
+        pointerTarget.current.y,
+        3,
+        delta,
       );
       tiltRef.current.rotation.z = THREE.MathUtils.damp(
-        tiltRef.current.rotation.z, -pointerTarget.current.x, 3, delta
+        tiltRef.current.rotation.z,
+        -pointerTarget.current.x,
+        3,
+        delta,
       );
     }
   });
@@ -102,7 +108,7 @@ function Disc({ audioRef, coverImage }: Vinyl3DProps) {
       {/* Platte liegt in XZ-Ebene, Kamera schaut von schräg oben */}
       <group ref={spinRef}>
         <mesh>
-          <cylinderGeometry args={[1.4, 1.4, 0.05, 96]} />
+          <cylinderGeometry args={[1.4, 1.4, 0.05, 64]} />
           <meshPhysicalMaterial
             color="#141414"
             roughness={0.42}
@@ -125,7 +131,7 @@ function Disc({ audioRef, coverImage }: Vinyl3DProps) {
         )}
         {/* Mittelloch */}
         <mesh position={[0, 0.03, 0]} rotation-x={-Math.PI / 2}>
-          <circleGeometry args={[0.05, 32]} />
+          <circleGeometry args={[0.05, 24]} />
           <meshBasicMaterial color="#0a0a0a" />
         </mesh>
       </group>

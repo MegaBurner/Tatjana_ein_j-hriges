@@ -1,0 +1,152 @@
+.letter-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(58, 46, 79, 0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.letter-modal-card {
+  position: relative;
+  width: min(92vw, 640px);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 2.5rem 2rem 2rem;
+  background: linear-gradient(165deg, #fffdf8, #fdf6ec);
+  border: 1px solid var(--accent-gold);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    0 30px 80px rgba(74, 60, 110, 0.35),
+    0 10px 30px rgba(74, 60, 110, 0.2);
+  overflow-y: auto;
+}
+
+.letter-modal-close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(224, 113, 134, 0.12);
+  color: var(--accent-rose-deep);
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    transform 0.2s ease;
+}
+
+.letter-modal-close:hover {
+  background: rgba(224, 113, 134, 0.22);
+  transform: scale(1.06);
+}
+
+.letter-modal-close:focus-visible,
+.letter-modal-nav-btn:focus-visible,
+.letter-modal-download:focus-visible {
+  outline: 2px solid var(--accent-rose-deep);
+  outline-offset: 2px;
+}
+
+.letter-modal-heading {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 600;
+  font-size: clamp(1.5rem, 4vw, 2.1rem);
+  color: var(--accent-rose-deep);
+  margin: 0;
+  text-align: center;
+}
+
+.letter-modal-page-frame {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: 0 8px 30px rgba(74, 60, 110, 0.18);
+}
+
+.letter-modal-page-image {
+  width: 100%;
+  max-height: 72vh;
+  object-fit: contain;
+  background: #fffdf8;
+}
+
+.letter-modal-nav {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.letter-modal-nav-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid rgba(232, 199, 125, 0.6);
+  background: #fffdf8;
+  color: var(--accent-rose-deep);
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    transform 0.2s ease;
+}
+
+.letter-modal-nav-btn:hover:not(:disabled) {
+  background: rgba(232, 199, 125, 0.18);
+  transform: translateY(-1px);
+}
+
+.letter-modal-nav-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.letter-modal-page-label {
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.letter-modal-download {
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent-gold);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.letter-modal-download:hover {
+  color: var(--accent-rose-deep);
+}
+
+@media (max-width: 480px) {
+  .letter-modal-card {
+    padding: 2.25rem 1.25rem 1.5rem;
+    width: 94vw;
+  }
+}
+
+/* Programmatic focus (tabIndex -1) soll keinen Browser-Fokusring zeigen */
+.letter-modal-card:focus {
+  outline: none;
+}

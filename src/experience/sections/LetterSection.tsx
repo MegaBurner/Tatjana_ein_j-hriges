@@ -1,14 +1,16 @@
-import { useMemo, useRef } from 'react';
-import { useFrame } from '@react-three/fiber';
-import { useScroll } from '@react-three/drei';
-import * as THREE from 'three';
-import { sectionProgress, sectionVisibility } from '../useSectionProgress';
-import { usePrefersReducedMotion } from '../../three/hooks/useWebGL';
-import { getSoftShadowTexture } from '../softShadow';
-import type { SectionProps } from '../types';
+import { useMemo, useRef } from "react";
+import { useFrame } from "@react-three/fiber";
+import { useScroll } from "@react-three/drei";
+import * as THREE from "three";
+import { sectionProgress, sectionVisibility } from "../useSectionProgress";
+import { usePrefersReducedMotion } from "../../three/hooks/useWebGL";
+import { getSoftShadowTexture } from "../softShadow";
+import type { SectionProps } from "../types";
 
 type ScrollState = ReturnType<typeof useScroll>;
 
+/** Unterhalb dieser Sichtbarkeit lohnt sich keine Matrix-Neuberechnung mehr. */
+const VISIBILITY_EPSILON = 0.005;
 const ENVELOPE_WIDTH = 2.2;
 const ENVELOPE_HEIGHT = 1.5;
 // sectionVisibility fades the whole scene out again by local progress ≈0.75
@@ -37,14 +39,14 @@ const LETTER_LINES: LetterLine[] = [
 
 /** Sehr kontrastarme Papier-Speckle-Textur auf Cremeton — Canvas-Singleton. */
 function makePaperGrainTexture(): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
+  const canvas = document.createElement("canvas");
   canvas.width = PAPER_GRAIN_SIZE;
   canvas.height = PAPER_GRAIN_SIZE;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext("2d");
   if (!ctx) {
     return new THREE.CanvasTexture(canvas);
   }
-  ctx.fillStyle = '#fdf6ec';
+  ctx.fillStyle = "#fdf6ec";
   ctx.fillRect(0, 0, PAPER_GRAIN_SIZE, PAPER_GRAIN_SIZE);
   const imageData = ctx.getImageData(0, 0, PAPER_GRAIN_SIZE, PAPER_GRAIN_SIZE);
   const data = imageData.data;
@@ -76,7 +78,10 @@ interface FlapEdgeTrim {
 }
 
 /** Zwei dünne Gold-Randlinien entlang der oberen (schrägen) Kanten der Dreiecksklappe. */
-function makeFlapEdgeTrims(halfWidth: number, height: number): [FlapEdgeTrim, FlapEdgeTrim] {
+function makeFlapEdgeTrims(
+  halfWidth: number,
+  height: number,
+): [FlapEdgeTrim, FlapEdgeTrim] {
   const length = Math.sqrt(halfWidth * halfWidth + height * height);
   const angleLeft = Math.atan2(-height, halfWidth);
   const angleRight = Math.atan2(-height, -halfWidth);
@@ -106,7 +111,15 @@ function makeHeartSeeds(count: number): HeartSeed[] {
   }));
 }
 
-function FloatingHearts({ reducedMotion }: { reducedMotion: boolean }) {
+function FloatingHearts({
+  reducedMotion,
+  scroll,
+  index,
+}: {
+  reducedMotion: boolean;
+  scroll: ScrollState;
+  index: number;
+}) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const seeds = useMemo(() => makeHeartSeeds(HEART_COUNT), []);
   const dummy = useMemo(() => new THREE.Object3D(), []);
@@ -114,6 +127,7 @@ function FloatingHearts({ reducedMotion }: { reducedMotion: boolean }) {
   useFrame((state) => {
     const mesh = meshRef.current;
     if (!mesh) return;
+    if (sectionVisibility(scroll, index) < VISIBILITY_EPSILON) return;
     const t = reducedMotion ? 0 : state.clock.elapsedTime;
 
     seeds.forEach((seed, i) => {
@@ -121,7 +135,7 @@ function FloatingHearts({ reducedMotion }: { reducedMotion: boolean }) {
       dummy.position.set(
         Math.cos(a) * seed.radius,
         seed.height + Math.sin(t * 0.6 + seed.phase) * 0.15,
-        0.6 + Math.sin(a) * 0.5
+        0.6 + Math.sin(a) * 0.5,
       );
       dummy.rotation.set(0, t * 0.4 + seed.phase, Math.PI / 4);
       dummy.scale.setScalar(seed.scale);
@@ -155,31 +169,54 @@ function Letter({ scroll, index }: { scroll: ScrollState; index: number }) {
   useFrame((_, delta) => {
     const group = groupRef.current;
     if (!group) return;
+    if (sectionVisibility(scroll, index) < VISIBILITY_EPSILON) return;
     const progress = sectionProgress(scroll, index);
     const t = THREE.MathUtils.clamp(
       (progress - LETTER_RISE_START) / LETTER_RISE_SPAN,
       0,
-      1
+      1,
     );
     const targetY = -0.3 + t * 0.85;
     const targetZ = 0.05 + t * 0.25;
     const targetTilt = t * -0.28;
-    group.position.y = THREE.MathUtils.damp(group.position.y, targetY, 5, delta);
-    group.position.z = THREE.MathUtils.damp(group.position.z, targetZ, 5, delta);
-    group.rotation.x = THREE.MathUtils.damp(group.rotation.x, targetTilt, 5, delta);
+    group.position.y = THREE.MathUtils.damp(
+      group.position.y,
+      targetY,
+      5,
+      delta,
+    );
+    group.position.z = THREE.MathUtils.damp(
+      group.position.z,
+      targetZ,
+      5,
+      delta,
+    );
+    group.rotation.x = THREE.MathUtils.damp(
+      group.rotation.x,
+      targetTilt,
+      5,
+      delta,
+    );
     group.visible = t > 0.001;
   });
 
   return (
     <group ref={groupRef} position={[0, -0.3, 0.05]}>
       <mesh>
-        <boxGeometry args={[ENVELOPE_WIDTH * 0.82, ENVELOPE_HEIGHT * 0.82, 0.02]} />
+        <boxGeometry
+          args={[ENVELOPE_WIDTH * 0.82, ENVELOPE_HEIGHT * 0.82, 0.02]}
+        />
         <meshStandardMaterial color="#fffdf8" roughness={0.7} />
       </mesh>
       {LETTER_LINES.map((line, i) => (
         <mesh key={i} position={[0, line.y, 0.012]}>
           <boxGeometry args={[ENVELOPE_WIDTH * line.width, 0.012, 0.001]} />
-          <meshStandardMaterial color="#e8c77d" roughness={0.5} transparent opacity={0.65} />
+          <meshStandardMaterial
+            color="#e8c77d"
+            roughness={0.5}
+            transparent
+            opacity={0.65}
+          />
         </mesh>
       ))}
       {/* Kleines Rosa-Herz als Signatur, unten rechts */}
@@ -202,10 +239,13 @@ export const LetterScene = ({ index }: SectionProps) => {
   const flapRef = useRef<THREE.Group>(null);
   const flapHalfWidth = ENVELOPE_WIDTH * 0.5;
   const flapHeight = ENVELOPE_HEIGHT * 0.55;
-  const flapShape = useMemo(() => makeFlapShape(flapHalfWidth, flapHeight), [flapHalfWidth, flapHeight]);
+  const flapShape = useMemo(
+    () => makeFlapShape(flapHalfWidth, flapHeight),
+    [flapHalfWidth, flapHeight],
+  );
   const flapTrims = useMemo(
     () => makeFlapEdgeTrims(flapHalfWidth, flapHeight),
-    [flapHalfWidth, flapHeight]
+    [flapHalfWidth, flapHeight],
   );
   const grainTexture = getPaperGrainTexture();
   const shadowTexture = getSoftShadowTexture();
@@ -224,14 +264,22 @@ export const LetterScene = ({ index }: SectionProps) => {
         ? 1
         : THREE.MathUtils.clamp(progress / FLAP_OPEN_SPAN, 0, 1);
       const targetAngle = -Math.PI * 0.72 * flapT;
-      flap.rotation.x = THREE.MathUtils.damp(flap.rotation.x, targetAngle, 5, delta);
+      flap.rotation.x = THREE.MathUtils.damp(
+        flap.rotation.x,
+        targetAngle,
+        5,
+        delta,
+      );
     }
   });
 
   return (
     <group ref={rootRef} position={[0, -0.1, 0]} rotation={[0.18, -0.22, 0.05]}>
       {/* Weicher Kontaktschatten unter dem Umschlag */}
-      <mesh position={[0, -ENVELOPE_HEIGHT * 0.7, -0.15]} rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh
+        position={[0, -ENVELOPE_HEIGHT * 0.7, -0.15]}
+        rotation={[-Math.PI / 2, 0, 0]}
+      >
         <planeGeometry args={[2.4, 1.8]} />
         <meshBasicMaterial
           map={shadowTexture}
@@ -263,12 +311,22 @@ export const LetterScene = ({ index }: SectionProps) => {
       </mesh>
 
       {/* Untere Dreiecksklappen (statisch, angedeutet über verjüngte Boxen) */}
-      <mesh position={[-ENVELOPE_WIDTH * 0.25, -ENVELOPE_HEIGHT * 0.18, 0.026]} rotation={[0, 0, 0.62]}>
-        <boxGeometry args={[ENVELOPE_WIDTH * 0.62, ENVELOPE_HEIGHT * 0.5, 0.005]} />
+      <mesh
+        position={[-ENVELOPE_WIDTH * 0.25, -ENVELOPE_HEIGHT * 0.18, 0.026]}
+        rotation={[0, 0, 0.62]}
+      >
+        <boxGeometry
+          args={[ENVELOPE_WIDTH * 0.62, ENVELOPE_HEIGHT * 0.5, 0.005]}
+        />
         <meshStandardMaterial color="#f7ecdc" roughness={0.6} />
       </mesh>
-      <mesh position={[ENVELOPE_WIDTH * 0.25, -ENVELOPE_HEIGHT * 0.18, 0.026]} rotation={[0, 0, -0.62]}>
-        <boxGeometry args={[ENVELOPE_WIDTH * 0.62, ENVELOPE_HEIGHT * 0.5, 0.005]} />
+      <mesh
+        position={[ENVELOPE_WIDTH * 0.25, -ENVELOPE_HEIGHT * 0.18, 0.026]}
+        rotation={[0, 0, -0.62]}
+      >
+        <boxGeometry
+          args={[ENVELOPE_WIDTH * 0.62, ENVELOPE_HEIGHT * 0.5, 0.005]}
+        />
         <meshStandardMaterial color="#f7ecdc" roughness={0.6} />
       </mesh>
 
@@ -287,15 +345,27 @@ export const LetterScene = ({ index }: SectionProps) => {
         </mesh>
         {/* Dünne Gold-Ränder entlang der beiden oberen (schrägen) Klappenkanten */}
         {flapTrims.map((trim, i) => (
-          <mesh key={i} position={[trim.midX, trim.midY, 0.004]} rotation={[0, 0, trim.angle]}>
+          <mesh
+            key={i}
+            position={[trim.midX, trim.midY, 0.004]}
+            rotation={[0, 0, trim.angle]}
+          >
             <boxGeometry args={[trim.length, 0.02, 0.006]} />
-            <meshStandardMaterial color="#e8c77d" roughness={0.35} metalness={0.5} />
+            <meshStandardMaterial
+              color="#e8c77d"
+              roughness={0.35}
+              metalness={0.5}
+            />
           </mesh>
         ))}
         {/* Wachssiegel, mittig auf der Klappe */}
         <mesh position={[0, -ENVELOPE_HEIGHT * 0.3, 0.01]}>
           <cylinderGeometry args={[0.16, 0.16, 0.05, 24]} />
-          <meshStandardMaterial color="#e07186" roughness={0.4} metalness={0.1} />
+          <meshStandardMaterial
+            color="#e07186"
+            roughness={0.4}
+            metalness={0.1}
+          />
         </mesh>
         <mesh position={[0, -ENVELOPE_HEIGHT * 0.3, 0.036]}>
           <cylinderGeometry args={[0.09, 0.09, 0.01, 24]} />
@@ -303,13 +373,17 @@ export const LetterScene = ({ index }: SectionProps) => {
         </mesh>
       </group>
 
-      <FloatingHearts reducedMotion={reducedMotion} />
+      <FloatingHearts
+        reducedMotion={reducedMotion}
+        scroll={scroll}
+        index={index}
+      />
     </group>
   );
 };
 
 export const LetterHtml = ({ onOpenLetter }: SectionProps) => (
-  <div className="exp-content" style={{ paddingTop: '12vh' }}>
+  <div className="exp-content" style={{ paddingTop: "12vh" }}>
     <span className="exp-kicker">Kapitel 3</span>
     <h2 className="exp-title">Ein Brief für dich</h2>
     <p className="exp-subtitle">Von mir, für dich — schwarz auf weiß.</p>

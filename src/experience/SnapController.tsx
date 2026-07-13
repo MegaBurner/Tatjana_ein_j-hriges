@@ -1,9 +1,13 @@
-import { useEffect, useRef } from 'react';
-import { useFrame } from '@react-three/fiber';
-import { useScroll } from '@react-three/drei';
-import { usePrefersReducedMotion } from '../three/hooks/useWebGL';
-import { clearScrollTarget, peekScrollTarget, publishScroll } from './scrollBus';
-import { PAGES } from './constants';
+import { useEffect, useRef } from "react";
+import { useFrame } from "@react-three/fiber";
+import { useScroll } from "@react-three/drei";
+import { usePrefersReducedMotion } from "../three/hooks/useWebGL";
+import {
+  clearScrollTarget,
+  peekScrollTarget,
+  publishScroll,
+} from "./scrollBus";
+import { PAGES } from "./constants";
 
 /** Anzahl der Snap-Schritte zwischen den 7 Sections (0..6). */
 const SNAP_STEPS = PAGES - 1;
@@ -32,7 +36,7 @@ function makeGlide(
   from: number,
   to: number,
   stepSize: number,
-  prefersReducedMotion: boolean
+  prefersReducedMotion: boolean,
 ): Glide {
   const distanceRatio = Math.abs(to - from) / stepSize;
   const duration = prefersReducedMotion
@@ -71,13 +75,33 @@ function SnapController() {
 
     // Deep-Link: ?section=N springt direkt zur Section (0..6) — für Sharing
     // und für die Headless-Screenshot-Verifikation ohne Browser-Automation.
-    const sectionParam = new URLSearchParams(window.location.search).get('section');
+    let jumpCancel: (() => void) | null = null;
+    const sectionParam = new URLSearchParams(window.location.search).get(
+      "section",
+    );
     if (sectionParam !== null) {
       const idx = Math.min(SNAP_STEPS, Math.max(0, Number(sectionParam) || 0));
-      const max = el.scrollHeight - el.clientHeight;
-      if (max > 0) {
-        el.scrollTop = (max / SNAP_STEPS) * idx;
-      }
+      // ScrollControls (Eltern-Komponente) richtet Styles/DOM-Anhängen/Größe
+      // des Scroll-Elements erst in seinen EIGENEN Mount-Effects ein, die wegen
+      // Reacts Bottom-up-Effect-Reihenfolge NACH diesem Kind-Effect laufen —
+      // scrollHeight/clientHeight sind hier deshalb noch 0. ScrollControls
+      // ignoriert außerdem das allererste "scroll"-Event (`firstRun`-Flag).
+      // Daher: auf gültige Maße warten UND mindestens einen weiteren Frame
+      // verstreichen lassen, bevor der Sprung ausgeführt wird.
+      let frame = 0;
+      const jumpToSection = () => {
+        frame += 1;
+        const max = el.scrollHeight - el.clientHeight;
+        if (max > 0 && frame > 1) {
+          el.scrollTop = (max / SNAP_STEPS) * idx;
+        } else if (frame < 600) {
+          // Großzügige Deadline: Layout/Chunks können (v.a. headless oder auf
+          // langsamen Geräten) deutlich mehr als 30 Frames brauchen.
+          jumpRaf = requestAnimationFrame(jumpToSection);
+        }
+      };
+      let jumpRaf = requestAnimationFrame(jumpToSection);
+      jumpCancel = () => cancelAnimationFrame(jumpRaf);
     }
 
     const interrupt = () => {
@@ -90,7 +114,9 @@ function SnapController() {
       // Wert — alles andere ist fremd (Nutzer-Scroll ODER die noch laufende
       // Smooth-Wheel-Animation des Browsers) und bricht einen Glide ab,
       // statt gegen ihn zu kämpfen.
-      const own = recentWritesRef.current.some((w) => Math.abs(el.scrollTop - w) <= 1);
+      const own = recentWritesRef.current.some(
+        (w) => Math.abs(el.scrollTop - w) <= 1,
+      );
       if (own) return;
       interrupt();
     };
@@ -104,17 +130,18 @@ function SnapController() {
       lastActivityRef.current = performance.now();
     };
 
-    el.addEventListener('scroll', onScroll, { passive: true });
-    el.addEventListener('wheel', onWheel, { passive: true });
-    el.addEventListener('pointerdown', onPointerDown);
-    el.addEventListener('pointerup', onPointerUp);
+    el.addEventListener("scroll", onScroll, { passive: true });
+    el.addEventListener("wheel", onWheel, { passive: true });
+    el.addEventListener("pointerdown", onPointerDown);
+    el.addEventListener("pointerup", onPointerUp);
 
     return () => {
+      jumpCancel?.();
       elRef.current = null;
-      el.removeEventListener('scroll', onScroll);
-      el.removeEventListener('wheel', onWheel);
-      el.removeEventListener('pointerdown', onPointerDown);
-      el.removeEventListener('pointerup', onPointerUp);
+      el.removeEventListener("scroll", onScroll);
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("pointerdown", onPointerDown);
+      el.removeEventListener("pointerup", onPointerUp);
     };
   }, [scroll.el]);
 
@@ -143,7 +170,8 @@ function SnapController() {
     } else {
       const now = performance.now();
       const isIdle =
-        !pointerDownRef.current && now - lastActivityRef.current > SNAP_INACTIVITY_MS;
+        !pointerDownRef.current &&
+        now - lastActivityRef.current > SNAP_INACTIVITY_MS;
       if (isIdle) {
         target = Math.round(el.scrollTop / step) * step;
       }
