@@ -3,6 +3,7 @@ import { Canvas, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { usePrefersReducedMotion } from './hooks/useWebGL';
 import SceneErrorBoundary from './SceneErrorBoundary';
+import CanvasBackgroundEffects from '../components/Effects/CanvasBackgroundEffects';
 
 type ParticleShape = 'heart' | 'petal';
 
@@ -140,7 +141,7 @@ const BackgroundScene = () => {
       className="pointer-events-none fixed inset-0 z-0"
       aria-hidden="true"
     >
-      <SceneErrorBoundary fallback={null}>
+      <SceneErrorBoundary fallback={<CanvasBackgroundEffects />}>
         <Canvas
           dpr={[1, 2]}
           camera={{ position: [0, 0, 10], fov: 50 }}

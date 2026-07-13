@@ -29,6 +29,12 @@ function makeGrooveTexture(): THREE.CanvasTexture {
   return new THREE.CanvasTexture(canvas);
 }
 
+let grooveTexture: THREE.CanvasTexture | null = null;
+function getGrooveTexture(): THREE.CanvasTexture {
+  grooveTexture ??= makeGrooveTexture();
+  return grooveTexture;
+}
+
 function CoverLabel({ coverImage }: { coverImage: string }) {
   const rawTexture = useLoader(THREE.TextureLoader, coverImage);
   const texture = useMemo(() => {
@@ -55,7 +61,7 @@ function Disc({ audioRef, coverImage }: Vinyl3DProps) {
   const tiltRef = useRef<THREE.Group>(null);
   const speed = useRef(0);
   const pointerTarget = useRef({ x: 0, y: 0 });
-  const grooves = useMemo(() => makeGrooveTexture(), []);
+  const grooves = getGrooveTexture();
   const reducedMotion = usePrefersReducedMotion();
 
   useEffect(() => {

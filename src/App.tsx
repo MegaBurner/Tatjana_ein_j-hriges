@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import StartPage from './pages/StartPage';
 import PhotosPage from './pages/PhotosPage';
@@ -6,8 +6,9 @@ import VinylPage from './pages/VinylPage';
 import LetterPage from './pages/LetterPage';
 import PeonyPage from './pages/PeonyPage';
 import CanvasBackgroundEffects from './components/Effects/CanvasBackgroundEffects';
-import BackgroundScene from './three/BackgroundScene';
 import { detectWebGL } from './three/hooks/useWebGL';
+
+const BackgroundScene = lazy(() => import('./three/BackgroundScene'));
 
 // Memory images from public/memories/
 // Helper to handle base path for GitHub Pages
@@ -95,7 +96,7 @@ function App() {
   }, [currentSongIndex, currentPage]);
 
   return (
-    <div className="relative min-h-dvh overflow-x-hidden">
+    <div className="relative min-h-dvh overflow-x-clip">
       {/* Persistent Audio Element */}
       <audio 
         ref={audioRef} 
@@ -104,7 +105,13 @@ function App() {
       />
       
       {/* Global Background Effects - 3D wenn möglich, sonst 2D-Canvas */}
-      {HAS_WEBGL ? <BackgroundScene /> : <CanvasBackgroundEffects />}
+      {HAS_WEBGL ? (
+        <Suspense fallback={<CanvasBackgroundEffects />}>
+          <BackgroundScene />
+        </Suspense>
+      ) : (
+        <CanvasBackgroundEffects />
+      )}
 
       <AnimatePresence mode="wait">
         {currentPage === 0 && (
