@@ -16,12 +16,14 @@ export function sectionProgress(
 }
 
 /**
- * Sichtbarkeit 0..1 der Section `index`: blendet eine halbe Seite vor dem
- * Eintritt ein und eine halbe Seite nach dem Austritt wieder aus.
- * Praktisch, um Szenen außerhalb des Viewports zu deaktivieren.
+ * Sichtbarkeit 0..1 der Section `index` — zentrumsbasiert: Section `i` ist
+ * im Viewport zentriert bei Offset i/(PAGES-1); die Bell-Curve peakt genau
+ * dort und fällt zur Mitte der Nachbar-Sections auf 0 ab. Praktisch, um
+ * Szenen außerhalb des Viewports zu deaktivieren, ohne dass eine zentrierte
+ * Section jemals ausgeblendet wird (insbesondere die letzte bei Offset 1).
  */
 export function sectionVisibility(scroll: ScrollState, index: number): number {
-  const start = Math.max(0, (index - 0.75) / PAGES);
-  const end = Math.min(1, (index + 0.75) / PAGES);
-  return scroll.curve(start, end - start);
+  const center = index / (PAGES - 1);
+  const halfWidth = 1 / (PAGES - 1);
+  return scroll.curve(center - halfWidth, 2 * halfWidth);
 }
