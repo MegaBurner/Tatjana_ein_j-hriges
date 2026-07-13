@@ -251,7 +251,8 @@ export const SarmaScene = ({ index }: SectionProps) => {
   });
 
   return (
-    <group ref={rootRef} position={[0, -0.05, 0]}>
+    // Deutlich zur Kamera gekippt, damit die Rollen auf dem Teller sichtbar sind
+    <group ref={rootRef} position={[0, -0.05, 0.3]} rotation={[0.62, 0, 0]}>
       {/* Holztisch */}
       <RoundedBox args={[3.8, 0.3, 2.4]} radius={0.06} smoothness={4} position={[0, -0.75, 0]}>
         <meshStandardMaterial color="#6b4e37" roughness={0.75} metalness={0.05} />

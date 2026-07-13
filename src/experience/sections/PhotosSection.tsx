@@ -1,12 +1,11 @@
-import { Suspense, useMemo, useRef } from 'react';
+import { Suspense, useMemo, useRef, useSyncExternalStore } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { useScroll, useTexture } from '@react-three/drei';
 import * as THREE from 'three';
 import { sectionProgress, sectionVisibility } from '../useSectionProgress';
 import { getSoftShadowTexture } from '../softShadow';
+import { getBookPage, setBookPage, subscribeBookPage } from '../bookStore';
 import type { SectionProps } from '../types';
-
-type ScrollState = ReturnType<typeof useScroll>;
 
 const PAGE_WIDTH = 1.2;
 const PAGE_HEIGHT = 1.6;
@@ -26,6 +25,13 @@ const PHOTO_FILES = [
 
 const PHOTO_URLS = PHOTO_FILES.map((file) => `${import.meta.env.BASE_URL}memories/web/${file}`);
 
+/** 4 Doppelseiten (2 Fotos je Seite) — Grenze für manuelles Blättern. */
+const PAGE_COUNT = PHOTO_FILES.length / 2;
+
+function clampPage(p: number): number {
+  return Math.max(0, Math.min(PAGE_COUNT, p));
+}
+
 function markSRGB(textures: THREE.Texture[]) {
   textures.forEach((texture) => {
     texture.colorSpace = THREE.SRGBColorSpace;
@@ -36,27 +42,24 @@ function Page({
   front,
   back,
   pageIndex,
-  pageCount,
-  scroll,
-  sectionIndex,
 }: {
   front: THREE.Texture;
   back: THREE.Texture;
   pageIndex: number;
-  pageCount: number;
-  scroll: ScrollState;
-  sectionIndex: number;
 }) {
   const hingeRef = useRef<THREE.Group>(null);
 
   useFrame((_, delta) => {
     const hinge = hingeRef.current;
     if (!hinge) return;
-    const progress = sectionProgress(scroll, sectionIndex);
-    const flipSpan = (1 - COVER_OPEN_SPAN) / pageCount;
-    const start = COVER_OPEN_SPAN + pageIndex * flipSpan;
-    const local = THREE.MathUtils.clamp((progress - start) / flipSpan, 0, 1);
-    hinge.rotation.y = THREE.MathUtils.damp(hinge.rotation.y, -local * Math.PI, 6, delta);
+    // Manuelles Blättern: Seite ist umgeschlagen, sobald ihr Index vor der
+    // per Button gesetzten Zielseite liegt (statt scroll-getriebenem Fortschritt).
+    const flipped = pageIndex < getBookPage();
+    const target = flipped ? -Math.PI : 0;
+    hinge.rotation.y = THREE.MathUtils.damp(hinge.rotation.y, target, 4.5, delta);
+    // Z-Anhebung während des Umblätterns — `local` als Fortschritt 0..1
+    // aus dem gedämpften Rotationswinkel selbst abgeleitet (keine Scroll-Progress mehr).
+    const local = Math.abs(hinge.rotation.y) / Math.PI;
     hinge.position.z =
       0.03 - (pageIndex + 1) * 0.012 + Math.sin(local * Math.PI) * 0.02;
   });
@@ -84,7 +87,7 @@ function Page({
   );
 }
 
-function PhotoPages({ scroll, sectionIndex }: { scroll: ScrollState; sectionIndex: number }) {
+function PhotoPages() {
   const textures = useTexture(PHOTO_URLS, markSRGB);
   const pages = useMemo(() => {
     const result: { front: THREE.Texture; back: THREE.Texture }[] = [];
@@ -97,15 +100,7 @@ function PhotoPages({ scroll, sectionIndex }: { scroll: ScrollState; sectionInde
   return (
     <>
       {pages.map((page, i) => (
-        <Page
-          key={i}
-          front={page.front}
-          back={page.back}
-          pageIndex={i}
-          pageCount={pages.length}
-          scroll={scroll}
-          sectionIndex={sectionIndex}
-        />
+        <Page key={i} front={page.front} back={page.back} pageIndex={i} />
       ))}
     </>
   );
@@ -162,7 +157,7 @@ export const PhotosScene = ({ index }: SectionProps) => {
       </mesh>
 
       <Suspense fallback={null}>
-        <PhotoPages scroll={scroll} sectionIndex={index} />
+        <PhotoPages />
       </Suspense>
 
       {/* Vorderer Einband (öffnet sich) — Creme-Gold-Creme-Sandwich, damit sowohl
@@ -186,10 +181,42 @@ export const PhotosScene = ({ index }: SectionProps) => {
   );
 };
 
-export const PhotosHtml = () => (
-  <div className="exp-content" style={{ paddingTop: '10vh' }}>
-    <span className="exp-kicker">Kapitel 1</span>
-    <h2 className="exp-title">Unser Jahr in Bildern</h2>
-    <p className="exp-subtitle">Ein Fotobuch voller Erinnerungen — blättere durch.</p>
-  </div>
-);
+export const PhotosHtml = () => {
+  const page = useSyncExternalStore(subscribeBookPage, getBookPage);
+  const spreadCount = PAGE_COUNT + 1;
+  const isFirst = page <= 0;
+  const isLast = page >= PAGE_COUNT;
+
+  return (
+    <div className="exp-content" style={{ paddingTop: '10vh' }}>
+      <span className="exp-kicker">Kapitel 1</span>
+      <h2 className="exp-title">Unser Jahr in Bildern</h2>
+      <p className="exp-subtitle">Ein Fotobuch voller Erinnerungen — blättere durch.</p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        <button
+          type="button"
+          className="exp-btn"
+          style={{ opacity: isFirst ? 0.4 : 1 }}
+          disabled={isFirst}
+          onClick={() => setBookPage(clampPage(page - 1))}
+          aria-label="Zurück blättern"
+        >
+          ‹ Zurück blättern
+        </button>
+        <span className="exp-subtitle" style={{ opacity: 0.75 }}>
+          Seite {page + 1} / {spreadCount}
+        </span>
+        <button
+          type="button"
+          className="exp-btn"
+          style={{ opacity: isLast ? 0.4 : 1 }}
+          disabled={isLast}
+          onClick={() => setBookPage(clampPage(page + 1))}
+          aria-label="Weiterblättern"
+        >
+          Weiterblättern ›
+        </button>
+      </div>
+    </div>
+  );
+};

@@ -169,6 +169,84 @@
   50% { transform: scale(1.18); }
 }
 
+/* Musik-Intro-Gate — sitzt über allem, blockiert Scroll bis zur Nutzer-Geste
+   (Autoplay-Policy der Browser erfordert eine echte Interaktion). */
+.exp-intro {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(74, 58, 90, 0.28);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.exp-intro-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  max-width: 420px;
+  padding: 2.5rem 2rem;
+  text-align: center;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(160deg, rgba(253, 246, 236, 0.88), rgba(244, 165, 174, 0.38));
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 20px 60px var(--shadow-medium);
+}
+
+.exp-intro-title {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 600;
+  font-size: clamp(1.8rem, 5vw, 2.6rem);
+  color: var(--accent-rose-deep);
+  margin: 0;
+}
+
+.exp-intro-text {
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  color: var(--text-primary);
+  opacity: 0.85;
+  margin: 0;
+}
+
+.exp-intro-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+}
+
+.exp-intro-skip {
+  pointer-events: auto;
+  background: none;
+  border: none;
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+}
+
+.exp-intro-skip:hover {
+  color: var(--text-primary);
+}
+
+.exp-intro-skip:focus-visible,
+.exp-intro-card .exp-btn:focus-visible {
+  outline: 2px solid var(--accent-rose-deep);
+  outline-offset: 2px;
+}
+
 .exp-dotrail {
   position: fixed;
   right: 1.25rem;

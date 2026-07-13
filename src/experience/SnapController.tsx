@@ -8,97 +8,100 @@ import { PAGES } from './constants';
 /** Anzahl der Snap-Schritte zwischen den 7 Sections (0..6). */
 const SNAP_STEPS = PAGES - 1;
 /** Kein Snap, solange innerhalb dieses Fensters echte Scroll-Aktivität stattfand (ms). */
-const SNAP_INACTIVITY_MS = 400;
-/** Ab dieser Distanz zum nächsten Rastpunkt gilt die Section als "eingerastet" (px). */
-const SNAP_EPSILON_PX = 2;
-/** Easing-Faktor für sanftes Einrasten. */
-const EASE_FACTOR = 3.5;
-/** Schnellerer Easing-Faktor bei prefers-reduced-motion — kein langes Nachwippen. */
-const REDUCED_MOTION_EASE_FACTOR = 8;
-/**
- * Mindest-Schrittgröße pro Frame (px), solange noch außerhalb von SNAP_EPSILON_PX.
- * Browser runden scrollTop-Zuweisungen auf ein 0.5px-Raster — ohne diesen
- * Floor kann der Eased-Schritt bei kleinem `diff` unter dieses Raster fallen
- * und die Zuweisung wird zum No-Op, wodurch das Einrasten für immer knapp
- * über SNAP_EPSILON_PX hängen bleibt, statt den finalen Exact-Snap zu erreichen.
- */
-const MIN_STEP_PX = 1;
+const SNAP_INACTIVITY_MS = 320;
+/** Ab dieser Distanz zum Ziel gilt es als erreicht (px). */
+const SNAP_EPSILON_PX = 1;
+/** Glide-Dauer: Basis + distanzabhängiger Anteil, gedeckelt (s). */
+const GLIDE_MIN_S = 0.45;
+const GLIDE_MAX_S = 1.1;
 
-/**
- * Fährt `el.scrollTop` einen Schritt in Richtung `target` (gleiches Easing
- * wie das Idle-Snapping). Gibt zurück, ob in diesem Frame geschrieben wurde
- * und ob `target` (innerhalb SNAP_EPSILON_PX) bereits erreicht ist — von
- * Idle-Snap und programmatischem DotRail-Sprung gemeinsam genutzt, damit
- * niemals zwei Stellen gleichzeitig scrollTop schreiben.
- */
-function stepTowards(
-  el: HTMLDivElement,
-  target: number,
-  delta: number,
-  ease: number
-): { wrote: boolean; arrived: boolean } {
-  const diff = target - el.scrollTop;
-  if (Math.abs(diff) <= SNAP_EPSILON_PX) {
-    if (diff !== 0) {
-      el.scrollTop = target;
-      return { wrote: true, arrived: true };
-    }
-    return { wrote: false, arrived: true };
-  }
-  const rawStep = diff * Math.min(1, delta * ease);
-  // Floor auf MIN_STEP_PX, aber nie über das Ziel hinaus (kein Overshoot).
-  const stepMagnitude = Math.min(Math.abs(diff), Math.max(Math.abs(rawStep), MIN_STEP_PX));
-  el.scrollTop += Math.sign(diff) * stepMagnitude;
-  return { wrote: true, arrived: false };
+/** Weiches Ease-in-out — sanftes Anrollen UND sanftes Ankommen, kein Kriechen. */
+function easeInOutCubic(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+interface Glide {
+  from: number;
+  to: number;
+  elapsed: number;
+  duration: number;
+}
+
+/** Erzeugt einen neuen Glide-Zustand (immutable — nie ein bestehendes Glide-Objekt mutieren). */
+function makeGlide(
+  from: number,
+  to: number,
+  stepSize: number,
+  prefersReducedMotion: boolean
+): Glide {
+  const distanceRatio = Math.abs(to - from) / stepSize;
+  const duration = prefersReducedMotion
+    ? GLIDE_MIN_S * 0.6
+    : Math.min(GLIDE_MAX_S, GLIDE_MIN_S + distanceRatio * 0.45);
+  return { from, to, elapsed: 0, duration };
 }
 
 /**
- * Rendert nichts sichtbares. Muss INNERHALB von <ScrollControls> stehen.
- * Sorgt für einen sanften Rastpunkt pro Section, sobald der Nutzer 400ms
- * nicht mehr aktiv gescrollt hat, und meldet den aktiven Section-Index
- * über scrollBus an DOM-Komponenten außerhalb des Canvas (z.B. DotRail).
+ * Rendert nichts Sichtbares. Muss INNERHALB von <ScrollControls> stehen.
+ * Einziger Schreiber von el.scrollTop: gleitet nach kurzer Scroll-Ruhe
+ * zeitbasiert (Ease-in-out) zum nächsten Section-Zentrum bzw. zu einem per
+ * DotRail angeforderten Ziel und meldet den aktiven Section-Index über
+ * scrollBus an DOM-Komponenten außerhalb des Canvas.
  */
 function SnapController() {
   const scroll = useScroll();
   const prefersReducedMotion = usePrefersReducedMotion();
 
-  // scroll.el wird beim Mount in eine plain Ref gespiegelt: useFrame darf den
-  // von useScroll() zurückgegebenen Wert nicht direkt mutieren (React-Compiler
-  // Immutability-Regel) — über die Ref umgangen, da wir absichtlich imperativ
-  // auf das DOM-Element schreiben.
+  // scroll.el in eine plain Ref gespiegelt (React-Compiler-Immutability:
+  // Hook-Rückgaben nicht direkt mutieren; imperative DOM-Writes laufen über die Ref).
   const elRef = useRef<HTMLDivElement | null>(null);
   const lastActivityRef = useRef(0);
   const pointerDownRef = useRef(false);
-  const ignoreScrollRef = useRef(false);
+  /** Zuletzt von UNS geschriebene scrollTop-Werte (kleines Fenster, da
+   *  Scroll-Events einen Frame nachhinken können) — diskriminiert eigene von
+   *  fremden Scroll-Events (z.B. Chromiums eigener Smooth-Wheel-Animation). */
+  const recentWritesRef = useRef<number[]>([]);
   const lastPublishedIndexRef = useRef(-1);
+  const glideRef = useRef<Glide | null>(null);
 
   useEffect(() => {
     const el = scroll.el;
     elRef.current = el;
     lastActivityRef.current = performance.now();
 
-    const markActivity = () => {
+    // Deep-Link: ?section=N springt direkt zur Section (0..6) — für Sharing
+    // und für die Headless-Screenshot-Verifikation ohne Browser-Automation.
+    const sectionParam = new URLSearchParams(window.location.search).get('section');
+    if (sectionParam !== null) {
+      const idx = Math.min(SNAP_STEPS, Math.max(0, Number(sectionParam) || 0));
+      const max = el.scrollHeight - el.clientHeight;
+      if (max > 0) {
+        el.scrollTop = (max / SNAP_STEPS) * idx;
+      }
+    }
+
+    const interrupt = () => {
+      glideRef.current = null;
+      clearScrollTarget();
       lastActivityRef.current = performance.now();
     };
     const onScroll = () => {
-      if (ignoreScrollRef.current) return;
-      markActivity();
+      // Eigene Writes landen (bis auf Rundung) auf einem kürzlich geschriebenen
+      // Wert — alles andere ist fremd (Nutzer-Scroll ODER die noch laufende
+      // Smooth-Wheel-Animation des Browsers) und bricht einen Glide ab,
+      // statt gegen ihn zu kämpfen.
+      const own = recentWritesRef.current.some((w) => Math.abs(el.scrollTop - w) <= 1);
+      if (own) return;
+      interrupt();
     };
-    // Echte Nutzeraktivität bricht einen laufenden programmatischen
-    // DotRail-Sprung ab ("... oder der Nutzer unterbricht") — die Kontrolle
-    // geht sofort zurück an Wheel/Touch, statt gegen das Ziel zu kämpfen.
-    const onWheel = () => {
-      clearScrollTarget();
-      markActivity();
-    };
+    const onWheel = interrupt;
     const onPointerDown = () => {
       pointerDownRef.current = true;
-      clearScrollTarget();
-      markActivity();
+      interrupt();
     };
     const onPointerUp = () => {
       pointerDownRef.current = false;
-      markActivity();
+      lastActivityRef.current = performance.now();
     };
 
     el.addEventListener('scroll', onScroll, { passive: true });
@@ -121,6 +124,7 @@ function SnapController() {
     const max = el.scrollHeight - el.clientHeight;
     if (max <= 0) return;
 
+    const step = max / SNAP_STEPS;
     const rawIndex = Math.round((el.scrollTop / max) * SNAP_STEPS);
     const sectionIndex = Math.min(SNAP_STEPS, Math.max(0, rawIndex));
     if (sectionIndex !== lastPublishedIndexRef.current) {
@@ -128,32 +132,64 @@ function SnapController() {
       publishScroll({ sectionIndex, el });
     }
 
-    const ease = prefersReducedMotion ? REDUCED_MOTION_EASE_FACTOR : EASE_FACTOR;
     let wroteThisFrame = false;
 
+    // Ziel bestimmen: programmatischer Sprung (DotRail) hat Vorrang,
+    // sonst nach Scroll-Ruhe das nächste Section-Zentrum.
     const pendingTarget = peekScrollTarget();
+    let target: number | null = null;
     if (pendingTarget !== null) {
-      // Programmatischer Sprung (DotRail-Klick) hat Vorrang vor dem
-      // Idle-Snap unten — solange er läuft, ist stepTowards() hier der
-      // einzige Schreiber von el.scrollTop.
-      const { wrote, arrived } = stepTowards(el, pendingTarget, delta, ease);
-      wroteThisFrame = wrote;
-      if (arrived) clearScrollTarget();
+      target = pendingTarget;
     } else {
       const now = performance.now();
-      const isSettling =
+      const isIdle =
         !pointerDownRef.current && now - lastActivityRef.current > SNAP_INACTIVITY_MS;
-
-      if (isSettling) {
-        const step = max / SNAP_STEPS;
-        const nearest = Math.round(el.scrollTop / step) * step;
-        wroteThisFrame = stepTowards(el, nearest, delta, ease).wrote;
+      if (isIdle) {
+        target = Math.round(el.scrollTop / step) * step;
       }
     }
 
-    // Nur solange wir selbst schreiben ignorieren wir 'scroll'-Events — echte
-    // Nutzeraktivität dazwischen (z.B. neuer Wheel-Tick) muss weiter durchschlagen.
-    ignoreScrollRef.current = wroteThisFrame;
+    if (target !== null && Math.abs(target - el.scrollTop) <= SNAP_EPSILON_PX) {
+      // Bereits (praktisch) angekommen — exakt setzen, Glide beenden.
+      if (el.scrollTop !== target) {
+        el.scrollTop = target;
+        recentWritesRef.current.push(el.scrollTop);
+        wroteThisFrame = true;
+      }
+      glideRef.current = null;
+      if (pendingTarget !== null) clearScrollTarget();
+    } else if (target !== null) {
+      const previous = glideRef.current;
+      // Neuen Glide starten, wenn keiner läuft oder sich das Ziel geändert hat.
+      const base =
+        previous && previous.to === target
+          ? previous
+          : makeGlide(el.scrollTop, target, step, prefersReducedMotion);
+      const elapsed = Math.min(base.duration, base.elapsed + delta);
+      const t = easeInOutCubic(elapsed / base.duration);
+      el.scrollTop = base.from + (base.to - base.from) * t;
+      recentWritesRef.current.push(el.scrollTop);
+      wroteThisFrame = true;
+      if (elapsed >= base.duration) {
+        el.scrollTop = base.to;
+        recentWritesRef.current.push(el.scrollTop);
+        glideRef.current = null;
+        if (pendingTarget !== null) clearScrollTarget();
+      } else {
+        glideRef.current = { ...base, elapsed };
+      }
+    } else {
+      glideRef.current = null;
+    }
+
+    // Fenster der eigenen Writes klein halten; ohne eigenen Write pro Frame
+    // altert das Fenster schnell heraus (Events hinken max. ~1 Frame nach).
+    const writes = recentWritesRef.current;
+    if (wroteThisFrame) {
+      if (writes.length > 6) writes.splice(0, writes.length - 6);
+    } else if (writes.length > 0) {
+      writes.shift();
+    }
   });
 
   return null;

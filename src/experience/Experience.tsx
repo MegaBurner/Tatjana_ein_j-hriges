@@ -36,7 +36,7 @@ const Experience = (props: ExperienceProps) => {
       <directionalLight position={[4, 6, 4]} intensity={1.3} />
       <pointLight position={[-4, 2, -3]} intensity={0.6} color="#f4a5ae" />
       <Suspense fallback={null}>
-        <ScrollControls pages={PAGES} damping={0.18}>
+        <ScrollControls pages={PAGES} damping={0.22}>
           <SnapController />
           <AmbientLayer />
           <Scroll>

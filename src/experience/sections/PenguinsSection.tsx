@@ -15,8 +15,8 @@ const LEAN_START = 0.35;
 const LEAN_SPAN = 0.2;
 const KISS_THRESHOLD = 0.5;
 const START_X = 1.75;
-const MEET_X = 0.55;
-const LEAN_ANGLE = 0.42;
+const MEET_X = 0.68;
+const LEAN_ANGLE = 0.28;
 
 const HEART_COUNT = 12;
 const HEART_LOOP_DURATION = 2.2;
