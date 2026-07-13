@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import PolaroidPhoto from '../components/PolaroidPhoto/PolaroidPhoto';
 import FilmStrip from '../components/FilmStrip/FilmStrip';
@@ -17,11 +17,27 @@ const resolvePath = (path: string) => {
   return import.meta.env.BASE_URL + path.replace(/^\//, '');
 };
 
+// SVG for Vintage Camera Decoration - SCALED UP
+// Declared at module scope so it isn't re-created (and doesn't reset state) on every render.
+const VintageCamera = () => (
+  <svg width="280" height="280" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" className="camera-svg">
+    <rect x="20" y="60" width="160" height="100" rx="10" fill="#222" stroke="#111" strokeWidth="2"/>
+    <rect x="20" y="60" width="160" height="40" rx="10" fill="#333"/>
+    <circle cx="100" cy="110" r="35" fill="#111" stroke="#444" strokeWidth="3"/>
+    <circle cx="100" cy="110" r="25" fill="#000" stroke="#222" strokeWidth="2"/>
+    <circle cx="110" cy="100" r="5" fill="rgba(255,255,255,0.6)"/>
+    <rect x="140" y="70" width="30" height="20" rx="2" fill="#111"/>
+    <rect x="30" y="40" width="40" height="20" rx="2" fill="#222"/>
+    <circle cx="160" cy="50" r="8" fill="#444"/>
+  </svg>
+);
+
 const PhotosPage = ({ images, currentPage, totalPages, onNext, onPrev }: PhotosPageProps) => {
   // New images from public/memories
   // New images from public/memories
   // Filtered out .DNG files as they are not supported by browsers
-  const memoryImages = [
+  // Constant per render — memoized so it doesn't churn the preload effect's deps.
+  const memoryImages = useMemo(() => [
     resolvePath('/memories/05438073-d4bf-42fd-a591-5b79ae40c776.JPG'),
     resolvePath('/memories/0dc9a2fa-036a-4d56-b7a4-b7bab7a5ec25.JPG'),
     // HEIC files removed due to browser incompatibility
@@ -47,31 +63,33 @@ const PhotosPage = ({ images, currentPage, totalPages, onNext, onPrev }: PhotosP
     resolvePath('/memories/e0618077-191d-4805-b0b2-eeb0b1ca263e.JPG'),
     resolvePath('/memories/e5a59266-912f-4ecf-8ac0-1b8abdcf200c.JPG'),
     resolvePath('/memories/fc90b5e2-bc5b-4ae2-98f4-c14950b61788.JPG')
-  ];
+  ], []);
 
   // The specific 6 images ("die alten") for the film strips
-  const filmImages = [
+  // Constant per render — memoized so it doesn't churn the preload effect's deps.
+  const filmImages = useMemo(() => [
     resolvePath('/memories/IMG_8099.jpg'),
     resolvePath('/memories/IMG_8100.jpg'),
     resolvePath('/memories/IMG_8101.jpg'),
     resolvePath('/memories/IMG_8102.jpg'),
     resolvePath('/memories/IMG_8105.jpg'),
     resolvePath('/memories/IMG_8106.jpg')
-  ];
+  ], []);
 
   // Use distinct sets of images for the two strips
   const strip1Images = filmImages.slice(0, 3);
   const strip2Images = filmImages.slice(3, 6);
 
-  // Combine props images with new memories for variety
-  // And FILTER to remove DNGs (if any crept in)
-  const allImages = [...images, ...memoryImages];
-  
   // Polaroid should show "restliche bilder außer die im film"
   // Filter out images that are in the film strip and DNGs
-  const polaroidImages = Array.from(new Set(allImages)).filter(src => 
-    !filmImages.includes(src) && !src.toLowerCase().endsWith('.dng')
-  );
+  const polaroidImages = useMemo(() => {
+    // Combine props images with new memories for variety
+    // And FILTER to remove DNGs (if any crept in)
+    const allImages = [...images, ...memoryImages];
+    return Array.from(new Set(allImages)).filter(src =>
+      !filmImages.includes(src) && !src.toLowerCase().endsWith('.dng')
+    );
+  }, [images, memoryImages, filmImages]);
 
   // Preload images to prevent lag
   useEffect(() => {
@@ -80,20 +98,6 @@ const PhotosPage = ({ images, currentPage, totalPages, onNext, onPrev }: PhotosP
       img.src = src;
     });
   }, [polaroidImages, filmImages]);
-
-  // SVG for Vintage Camera Decoration - SCALED UP
-  const VintageCamera = () => (
-    <svg width="280" height="280" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" className="camera-svg">
-      <rect x="20" y="60" width="160" height="100" rx="10" fill="#222" stroke="#111" strokeWidth="2"/>
-      <rect x="20" y="60" width="160" height="40" rx="10" fill="#333"/>
-      <circle cx="100" cy="110" r="35" fill="#111" stroke="#444" strokeWidth="3"/>
-      <circle cx="100" cy="110" r="25" fill="#000" stroke="#222" strokeWidth="2"/>
-      <circle cx="110" cy="100" r="5" fill="rgba(255,255,255,0.6)"/>
-      <rect x="140" y="70" width="30" height="20" rx="2" fill="#111"/>
-      <rect x="30" y="40" width="40" height="20" rx="2" fill="#222"/>
-      <circle cx="160" cy="50" r="8" fill="#444"/>
-    </svg>
-  );
 
   return (
     <div className="content-page photos-page-container">

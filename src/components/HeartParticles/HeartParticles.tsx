@@ -19,39 +19,41 @@ interface HeartParticlesProps {
   centerY?: number;
 }
 
+/** Generates 60 hearts bursting outward at random angles from the given origin
+ *  (origin is nudged 120px down from center). Pure, no side effects, so it can
+ *  serve as a useState lazy initializer instead of being computed in an effect. */
+function createHearts(centerX?: number, centerY?: number): Heart[] {
+  const cx = centerX ?? window.innerWidth / 2;
+  const cy = (centerY ?? window.innerHeight / 2) + 120;
+
+  const count = 60;
+  return Array.from({ length: count }, (_, i) => {
+    const angle = Math.random() * 2 * Math.PI;
+    const radius = 200 + Math.random() * 400; // Radius: 200-600px
+
+    return {
+      id: i,
+      size: 1.2 + Math.random() * 1.2,
+      rotation: Math.random() * 360 - 180,
+      emoji: heartEmojis[Math.floor(Math.random() * heartEmojis.length)],
+      startX: cx - 12,
+      startY: cy - 12,
+      endX: cx + Math.cos(angle) * radius - 12,
+      endY: cy + Math.sin(angle) * radius - 12,
+    };
+  });
+}
+
 const HeartParticles = ({ centerX, centerY }: HeartParticlesProps) => {
-  const [hearts, setHearts] = useState<Heart[]>([]);
+  // Lazy initializer instead of computing in an effect: HeartParticles is only ever
+  // mounted fresh (parent conditionally renders it), so this is behavior-identical
+  // while avoiding a synchronous setState-in-effect on mount.
+  const [hearts, setHearts] = useState<Heart[]>(() => createHearts(centerX, centerY));
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
-    // Calculate center - move origin DOWN by 120px from center
-    const cx = centerX ?? window.innerWidth / 2;
-    const cy = (centerY ?? window.innerHeight / 2) + 120; // Origin much lower
-
-    // Generate 60 hearts with RANDOM angles
-    const count = 60;
-    const newHearts: Heart[] = Array.from({ length: count }, (_, i) => {
-      // Completely random angle
-      const angle = Math.random() * 2 * Math.PI;
-      
-      // Radius: 200-600px
-      const radius = 200 + Math.random() * 400;
-      
-      return {
-        id: i,
-        size: 1.2 + Math.random() * 1.2,
-        rotation: Math.random() * 360 - 180,
-        emoji: heartEmojis[Math.floor(Math.random() * heartEmojis.length)],
-        startX: cx - 12,
-        startY: cy - 12,
-        endX: cx + Math.cos(angle) * radius - 12,
-        endY: cy + Math.sin(angle) * radius - 12,
-      };
-    });
-    
-    setHearts(newHearts);
-    
-    // Trigger visibility
+    // Trigger visibility on the next frame so the mount is a separate paint
+    // from the initial (pre-animation) state.
     requestAnimationFrame(() => {
       setIsVisible(true);
     });
@@ -63,7 +65,7 @@ const HeartParticles = ({ centerX, centerY }: HeartParticlesProps) => {
     }, 3500);
 
     return () => clearTimeout(timer);
-  }, [centerX, centerY]);
+  }, []);
 
   if (hearts.length === 0) return null;
 
