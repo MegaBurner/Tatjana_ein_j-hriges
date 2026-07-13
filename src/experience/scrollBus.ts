@@ -26,3 +26,27 @@ export function subscribeScroll(l: Listener): () => void {
     listeners.delete(l);
   };
 }
+
+/**
+ * Programmatischer Scroll-Auftrag: DotRail meldet hierüber ein Ziel
+ * (scrollTop in px) an, statt selbst `el.scrollTo({behavior:'smooth'})`
+ * aufzurufen. SnapController liest dies in seiner eigenen useFrame-Schleife
+ * und fährt das Ziel als einziger Schreiber von `el.scrollTop` an — das
+ * verhindert, dass der native Smooth-Scroll des Browsers und die
+ * Snap-Easing-Schreibzugriffe gleichzeitig an derselben Property ziehen.
+ * Der Auftrag gilt bis SnapController ihn (Ziel erreicht) konsumiert oder
+ * echte Nutzeraktivität (Wheel/Pointerdown) ihn abbricht.
+ */
+let pendingScrollTarget: number | null = null;
+
+export function requestScrollTarget(top: number): void {
+  pendingScrollTarget = top;
+}
+
+export function peekScrollTarget(): number | null {
+  return pendingScrollTarget;
+}
+
+export function clearScrollTarget(): void {
+  pendingScrollTarget = null;
+}

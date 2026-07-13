@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { useScroll } from '@react-three/drei';
 import { usePrefersReducedMotion } from '../three/hooks/useWebGL';
-import { publishScroll } from './scrollBus';
+import { clearScrollTarget, peekScrollTarget, publishScroll } from './scrollBus';
 import { PAGES } from './constants';
 
 /** Anzahl der Snap-Schritte zwischen den 7 Sections (0..6). */
@@ -23,6 +23,34 @@ const REDUCED_MOTION_EASE_FACTOR = 8;
  * über SNAP_EPSILON_PX hängen bleibt, statt den finalen Exact-Snap zu erreichen.
  */
 const MIN_STEP_PX = 1;
+
+/**
+ * Fährt `el.scrollTop` einen Schritt in Richtung `target` (gleiches Easing
+ * wie das Idle-Snapping). Gibt zurück, ob in diesem Frame geschrieben wurde
+ * und ob `target` (innerhalb SNAP_EPSILON_PX) bereits erreicht ist — von
+ * Idle-Snap und programmatischem DotRail-Sprung gemeinsam genutzt, damit
+ * niemals zwei Stellen gleichzeitig scrollTop schreiben.
+ */
+function stepTowards(
+  el: HTMLDivElement,
+  target: number,
+  delta: number,
+  ease: number
+): { wrote: boolean; arrived: boolean } {
+  const diff = target - el.scrollTop;
+  if (Math.abs(diff) <= SNAP_EPSILON_PX) {
+    if (diff !== 0) {
+      el.scrollTop = target;
+      return { wrote: true, arrived: true };
+    }
+    return { wrote: false, arrived: true };
+  }
+  const rawStep = diff * Math.min(1, delta * ease);
+  // Floor auf MIN_STEP_PX, aber nie über das Ziel hinaus (kein Overshoot).
+  const stepMagnitude = Math.min(Math.abs(diff), Math.max(Math.abs(rawStep), MIN_STEP_PX));
+  el.scrollTop += Math.sign(diff) * stepMagnitude;
+  return { wrote: true, arrived: false };
+}
 
 /**
  * Rendert nichts sichtbares. Muss INNERHALB von <ScrollControls> stehen.
@@ -56,8 +84,16 @@ function SnapController() {
       if (ignoreScrollRef.current) return;
       markActivity();
     };
+    // Echte Nutzeraktivität bricht einen laufenden programmatischen
+    // DotRail-Sprung ab ("... oder der Nutzer unterbricht") — die Kontrolle
+    // geht sofort zurück an Wheel/Touch, statt gegen das Ziel zu kämpfen.
+    const onWheel = () => {
+      clearScrollTarget();
+      markActivity();
+    };
     const onPointerDown = () => {
       pointerDownRef.current = true;
+      clearScrollTarget();
       markActivity();
     };
     const onPointerUp = () => {
@@ -66,14 +102,14 @@ function SnapController() {
     };
 
     el.addEventListener('scroll', onScroll, { passive: true });
-    el.addEventListener('wheel', markActivity, { passive: true });
+    el.addEventListener('wheel', onWheel, { passive: true });
     el.addEventListener('pointerdown', onPointerDown);
     el.addEventListener('pointerup', onPointerUp);
 
     return () => {
       elRef.current = null;
       el.removeEventListener('scroll', onScroll);
-      el.removeEventListener('wheel', markActivity);
+      el.removeEventListener('wheel', onWheel);
       el.removeEventListener('pointerdown', onPointerDown);
       el.removeEventListener('pointerup', onPointerUp);
     };
@@ -92,27 +128,26 @@ function SnapController() {
       publishScroll({ sectionIndex, el });
     }
 
-    const now = performance.now();
-    const isSettling =
-      !pointerDownRef.current && now - lastActivityRef.current > SNAP_INACTIVITY_MS;
-
+    const ease = prefersReducedMotion ? REDUCED_MOTION_EASE_FACTOR : EASE_FACTOR;
     let wroteThisFrame = false;
 
-    if (isSettling) {
-      const step = max / SNAP_STEPS;
-      const nearest = Math.round(el.scrollTop / step) * step;
-      const diff = nearest - el.scrollTop;
+    const pendingTarget = peekScrollTarget();
+    if (pendingTarget !== null) {
+      // Programmatischer Sprung (DotRail-Klick) hat Vorrang vor dem
+      // Idle-Snap unten — solange er läuft, ist stepTowards() hier der
+      // einzige Schreiber von el.scrollTop.
+      const { wrote, arrived } = stepTowards(el, pendingTarget, delta, ease);
+      wroteThisFrame = wrote;
+      if (arrived) clearScrollTarget();
+    } else {
+      const now = performance.now();
+      const isSettling =
+        !pointerDownRef.current && now - lastActivityRef.current > SNAP_INACTIVITY_MS;
 
-      if (Math.abs(diff) > SNAP_EPSILON_PX) {
-        const ease = prefersReducedMotion ? REDUCED_MOTION_EASE_FACTOR : EASE_FACTOR;
-        const rawStep = diff * Math.min(1, delta * ease);
-        // Floor auf MIN_STEP_PX, aber nie über das Ziel hinaus (kein Overshoot).
-        const stepMagnitude = Math.min(Math.abs(diff), Math.max(Math.abs(rawStep), MIN_STEP_PX));
-        el.scrollTop += Math.sign(diff) * stepMagnitude;
-        wroteThisFrame = true;
-      } else if (diff !== 0) {
-        el.scrollTop = nearest;
-        wroteThisFrame = true;
+      if (isSettling) {
+        const step = max / SNAP_STEPS;
+        const nearest = Math.round(el.scrollTop / step) * step;
+        wroteThisFrame = stepTowards(el, nearest, delta, ease).wrote;
       }
     }
 

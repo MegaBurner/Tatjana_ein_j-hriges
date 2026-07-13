@@ -14,7 +14,7 @@ const resolvePath = (path: string) => {
 
 const songs: Song[] = [
   { src: resolvePath('/song.mp3'), cover: resolvePath('/song.jpg'), title: 'Senidah — Delija' },
-  { src: resolvePath('/Les.mp3'), cover: resolvePath('/les.jpeg'), title: 'Les' },
+  { src: resolvePath('/Les.mp3'), cover: resolvePath('/les.jpeg'), title: 'Childish Gambino — L.E.S.' },
 ];
 
 const HAS_WEBGL = detectWebGL();

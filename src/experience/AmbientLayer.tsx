@@ -55,10 +55,17 @@ function AmbientInstances({
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const seeds = useMemo(() => makeAmbientSeeds(count), [count]);
   const dummy = useMemo(() => new THREE.Object3D(), []);
+  // Bei prefers-reduced-motion bewegt sich kein Partikel mehr — die
+  // Instance-Matrizen sind dann für die Lebensdauer des Meshs konstant.
+  // Ohne diesen Flag würde useFrame sie trotzdem jeden Frame neu aufbauen
+  // (identisches Ergebnis, aber unnötige CPU-Arbeit bei reduzierter Bewegung).
+  const builtRef = useRef(false);
 
   useFrame((state, delta) => {
     const mesh = meshRef.current;
     if (!mesh) return;
+    if (reducedMotion && builtRef.current) return;
+
     const t = state.clock.elapsedTime;
 
     seeds.forEach((seed, i) => {
@@ -81,6 +88,7 @@ function AmbientInstances({
       mesh.setMatrixAt(i, dummy.matrix);
     });
     mesh.instanceMatrix.needsUpdate = true;
+    builtRef.current = true;
   });
 
   return (

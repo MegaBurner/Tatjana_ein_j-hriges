@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { subscribeScroll } from './scrollBus';
+import { requestScrollTarget, subscribeScroll } from './scrollBus';
 import type { ScrollSnapshot } from './scrollBus';
 
 const CHAPTER_LABELS = [
@@ -27,7 +27,12 @@ function DotRail() {
     const el = snapshot.el;
     if (!el) return;
     const max = el.scrollHeight - el.clientHeight;
-    el.scrollTo({ top: (index * max) / (CHAPTER_COUNT - 1), behavior: 'smooth' });
+    if (max <= 0) return;
+    // Kein `el.scrollTo({behavior:'smooth'})` — der native Smooth-Scroll des
+    // Browsers würde parallel zu SnapControllers Easing-Schreibzugriffen an
+    // `el.scrollTop` schreiben. Stattdessen wird nur das Ziel gemeldet;
+    // SnapController fährt es als alleiniger Schreiber an (siehe scrollBus).
+    requestScrollTarget((index * max) / (CHAPTER_COUNT - 1));
   };
 
   return (
