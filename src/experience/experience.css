@@ -30,6 +30,9 @@
 .exp-section:nth-child(7) {
   top: 600vh;
 }
+.exp-section:nth-child(8) {
+  top: 700vh;
+}
 
 .exp-content {
   display: flex;
