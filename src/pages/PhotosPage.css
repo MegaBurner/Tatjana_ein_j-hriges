@@ -4,7 +4,7 @@
 }
 
 .photo-title {
-  margin-bottom: 2rem;
+  margin-bottom: 0;
   font-family: 'Playfair Display', serif;
   color: var(--accent-rose-deep, #e07186); /* Fallback color */
   text-shadow: 0 2px 4px rgba(0,0,0,0.05);

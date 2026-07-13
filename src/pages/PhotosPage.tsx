@@ -117,8 +117,7 @@ const PhotosPage = ({ images, currentPage, totalPages, onNext, onPrev }: PhotosP
           justifyContent: 'center',
           alignItems: 'center',
           gap: '6px',
-          marginTop: '0.5rem',
-          marginBottom: '1rem',
+          margin: '-1rem 0',
           color: '#4a4a4a',
           fontSize: '0.8rem',
           opacity: 0.7
