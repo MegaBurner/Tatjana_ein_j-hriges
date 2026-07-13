@@ -545,11 +545,11 @@ export const HeroScene = ({ index }: SectionProps) => {
 };
 
 export const HeroHtml = () => (
-  <div className="exp-content" style={{ paddingTop: "18vh" }}>
+  <div className="exp-content" style={{ paddingTop: "16vh" }}>
     <span className="exp-kicker">Für Tatjana</span>
     <h1 className="exp-title">moja ljubavi</h1>
     <p className="exp-subtitle">
-      Für die schönste Seele der Welt — für meinen Schatz.
+      Ein Jahr mit dir. Das hier ist alles für dich.
     </p>
     <div className="exp-scroll-hint">
       <span>Scroll</span>

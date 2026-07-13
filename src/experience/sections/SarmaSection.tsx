@@ -289,7 +289,12 @@ export const SarmaScene = ({ index }: SectionProps) => {
 
   return (
     // Deutlich zur Kamera gekippt, damit die Rollen auf dem Teller sichtbar sind
-    <group ref={rootRef} position={[0, -0.72, 0.3]} rotation={[0.62, 0, 0]}>
+    <group
+      ref={rootRef}
+      position={[0, -1.15, 0.2]}
+      rotation={[0.62, 0, 0]}
+      scale={0.82}
+    >
       {/* Holztisch */}
       <RoundedBox
         args={[3.8, 0.3, 2.4]}
@@ -347,11 +352,11 @@ export const SarmaScene = ({ index }: SectionProps) => {
 };
 
 export const SarmaHtml = () => (
-  <div className="exp-content" style={{ paddingTop: "10vh" }}>
+  <div className="exp-content" style={{ paddingTop: "9vh" }}>
     <span className="exp-kicker">Kapitel 5</span>
     <h2 className="exp-title">Sarma</h2>
     <p className="exp-subtitle">
-      Liebe geht durch den Magen — najbolja sarma, für uns zwei.
+      Najbolja sarma. Mit dir schmeckt sie am besten.
     </p>
   </div>
 );

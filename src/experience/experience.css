@@ -9,13 +9,27 @@
   overflow: hidden;
 }
 
-.exp-section:nth-child(1) { top: 0; }
-.exp-section:nth-child(2) { top: 100vh; }
-.exp-section:nth-child(3) { top: 200vh; }
-.exp-section:nth-child(4) { top: 300vh; }
-.exp-section:nth-child(5) { top: 400vh; }
-.exp-section:nth-child(6) { top: 500vh; }
-.exp-section:nth-child(7) { top: 600vh; }
+.exp-section:nth-child(1) {
+  top: 0;
+}
+.exp-section:nth-child(2) {
+  top: 100vh;
+}
+.exp-section:nth-child(3) {
+  top: 200vh;
+}
+.exp-section:nth-child(4) {
+  top: 300vh;
+}
+.exp-section:nth-child(5) {
+  top: 400vh;
+}
+.exp-section:nth-child(6) {
+  top: 500vh;
+}
+.exp-section:nth-child(7) {
+  top: 600vh;
+}
 
 .exp-content {
   display: flex;
@@ -41,10 +55,15 @@
   font-style: italic;
   font-weight: 600;
   font-size: clamp(2.2rem, 6vw, 4.5rem);
-  line-height: 1.1;
+  line-height: 1.15;
   color: var(--accent-rose-deep);
-  text-shadow: 0 2px 24px rgba(224, 113, 134, 0.25);
+  background: linear-gradient(115deg, #c94b66 20%, #a678c8 95%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 2px 18px rgba(209, 88, 113, 0.3));
   margin: 0;
+  padding-bottom: 0.08em;
 }
 
 .exp-subtitle {
@@ -73,7 +92,10 @@
   color: var(--text-primary);
   cursor: pointer;
   box-shadow: 0 4px 20px var(--shadow-soft);
-  transition: transform 0.25s ease, box-shadow 0.25s ease, background 0.25s ease;
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease,
+    background 0.25s ease;
 }
 
 .exp-btn:hover {
@@ -111,12 +133,19 @@
 }
 
 @keyframes exp-bob {
-  0%, 100% { transform: translate(-50%, 0); }
-  50% { transform: translate(-50%, 8px); }
+  0%,
+  100% {
+    transform: translate(-50%, 0);
+  }
+  50% {
+    transform: translate(-50%, 8px);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .exp-scroll-hint { animation: none; }
+  .exp-scroll-hint {
+    animation: none;
+  }
 }
 
 .exp-music-toggle {
@@ -137,7 +166,9 @@
   color: var(--accent-rose-deep);
   cursor: pointer;
   box-shadow: 0 4px 20px var(--shadow-soft);
-  transition: transform 0.25s ease, background 0.25s ease;
+  transition:
+    transform 0.25s ease,
+    background 0.25s ease;
 }
 
 .exp-music-toggle:hover {
@@ -165,8 +196,13 @@
 }
 
 @keyframes exp-pulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.18); }
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.18);
+  }
 }
 
 /* Musik-Intro-Gate — sitzt über allem, blockiert Scroll bis zur Nutzer-Geste
@@ -219,7 +255,10 @@
   outline: 1px solid rgba(255, 255, 255, 0.6);
   outline-offset: -1px;
   transform: scale(1);
-  transition: transform 0.3s ease, background 0.3s ease, box-shadow 0.3s ease;
+  transition:
+    transform 0.3s ease,
+    background 0.3s ease,
+    box-shadow 0.3s ease;
 }
 
 .exp-dot.active .exp-dot-mark {

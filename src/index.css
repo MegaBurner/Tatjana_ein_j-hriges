@@ -5,10 +5,10 @@
   --color-bg-primary: #e6e0f8;
   --color-bg-secondary: #f0ebf9;
   --color-accent-rose: #f4a5ae;
-  --color-accent-rose-deep: #e07186;
+  --color-accent-rose-deep: #d15871;
   --color-accent-lavender: #c4b5e4;
-  --color-accent-gold: #e8c77d;
-  --color-text-primary: #4a4a4a;
+  --color-accent-gold: #dfae5f;
+  --color-text-primary: #443c4a;
   --color-text-secondary: #888888;
   --font-sans: 'Inter', sans-serif;
   --font-serif: 'Playfair Display', serif;
@@ -19,10 +19,10 @@
   --bg-primary: #e6e0f8;
   --bg-secondary: #f0ebf9;
   --accent-rose: #f4a5ae;
-  --accent-rose-deep: #e07186;
+  --accent-rose-deep: #d15871;
   --accent-lavender: #c4b5e4;
-  --accent-gold: #e8c77d;
-  --text-primary: #4a4a4a;
+  --accent-gold: #dfae5f;
+  --text-primary: #443c4a;
   --text-secondary: #888888;
   --text-light: #ffffff;
   --shadow-soft: rgba(155, 137, 196, 0.18);
@@ -41,8 +41,8 @@
 body {
   /* Weicher radialer Verlauf statt Streifen — die 3D-Szene übernimmt die Textur */
   background:
-    radial-gradient(1200px 800px at 20% 10%, rgba(244, 165, 174, 0.25), transparent 60%),
-    radial-gradient(1000px 700px at 80% 90%, rgba(196, 181, 228, 0.35), transparent 60%),
+    radial-gradient(1200px 800px at 20% 10%, rgba(244, 165, 174, 0.34), transparent 60%),
+    radial-gradient(1000px 700px at 80% 90%, rgba(196, 181, 228, 0.44), transparent 60%),
     linear-gradient(180deg, var(--bg-secondary), var(--bg-primary));
   background-attachment: fixed;
   color: var(--text-primary);

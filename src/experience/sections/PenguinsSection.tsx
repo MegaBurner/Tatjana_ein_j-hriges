@@ -11,18 +11,46 @@ import type { SectionProps } from "../types";
 // sectionVisibility's bell curve peaks at progress 0 and hard-cuts to
 // invisible by local progress ≈0.75, so the kiss + heart burst must land
 // well before that so the payoff is actually seen.
-const WALK_SPAN = 0.35;
-const LEAN_START = 0.35;
-const LEAN_SPAN = 0.2;
+const WALK_SPAN = 0.3;
+const LEAN_START = 0.4;
+const LEAN_SPAN = 0.18;
 const KISS_THRESHOLD = 0.5;
 const START_X = 1.75;
-const MEET_X = 0.68;
+// Kontaktpunkt geometrisch hergeleitet: die verkettete Rotation der
+// Schnabelspitze (Lean um Z, danach der feste Yaw ±0.32 um Y — siehe
+// waddle1Ref/waddle2Ref unten) liefert für die Kopf-/Schnabel-Maße in
+// PenguinBody einen X-Beitrag von ±K bezogen auf die jeweilige
+// Wurzelposition. Bei MEET_X = K treffen sich beide Schnabelspitzen exakt
+// bei Welt-X 0 (Y/Z desselben Punkts: siehe KISS_CONTACT_* unten).
+const MEET_X = 0.6;
 const LEAN_ANGLE = 0.28;
+
+/** Y-Skalierung der Augen im Kuss-Kontakt — "happy eyes" als Schlitze. */
+const EYE_SLIT_SCALE = 0.15;
+
+/** Der EINE große Herz-Pop am Kontaktpunkt der Schnäbel (siehe MEET_X oben). */
+const KISS_CONTACT_X = 0;
+const KISS_CONTACT_Y = 0.16;
+const KISS_CONTACT_Z = 0.2;
+const CONTACT_HEART_SCALE = 0.16;
+
+/** Easing mit Overshoot (easeOutBack) für den Scale-in-Pop des großen
+ *  Kuss-Herzens: verlässt 0, schießt kurz über 1 hinaus, landet bei 1. */
+function easeOutBack(t: number): number {
+  const c1 = 1.70158;
+  const c3 = c1 + 1;
+  const x = THREE.MathUtils.clamp(t, 0, 1);
+  return 1 + c3 * (x - 1) ** 3 + c1 * (x - 1) ** 2;
+}
 
 const HEART_COUNT = 12;
 const HEART_LOOP_DURATION = 2.2;
 const HEART_RISE_HEIGHT = 1.1;
 const HEART_BASE_Y = 0.75;
+/** Herz-Loop-Grundintensität, sobald die Section sichtbar/zentriert ist —
+ *  Herzen schweben schon während des Watschelns/Stehens deutlich sichtbar
+ *  über den Köpfen, nicht erst beim Kuss. */
+const HEART_BASE_INTENSITY = 0.6;
 
 interface PenguinColors {
   body: string;
@@ -57,14 +85,14 @@ const SPHERE_RINGS = 12;
 function BlushCheeks({ facing, color }: { facing: 1 | -1; color: string }) {
   return (
     <>
-      {[0.15, -0.15].map((z) => (
-        <mesh key={z} position={[facing * 0.25, 0.93, z]}>
-          <circleGeometry args={[0.045, 12]} />
+      {[0.16, -0.16].map((z) => (
+        <mesh key={z} position={[facing * 0.27, 0.95, z]}>
+          <circleGeometry args={[0.06, 12]} />
           <meshStandardMaterial
             color={color}
             roughness={0.7}
             transparent
-            opacity={0.55}
+            opacity={0.75}
             side={THREE.DoubleSide}
             depthWrite={false}
           />
@@ -74,20 +102,40 @@ function BlushCheeks({ facing, color }: { facing: 1 | -1; color: string }) {
   );
 }
 
-/** Großes, ausdrucksstarkes Auge: weiße Sklera + schwarze Pupille + winziges Glanzlicht. */
-function Eye({ facing, z }: { facing: 1 | -1; z: number }) {
+/**
+ * Großes, ausdrucksstarkes Auge: weiße Sklera + schwarze Pupille + Glanzlicht.
+ * `activeRef` treibt den Kuss-Kontakt: die Y-Skalierung geht auf
+ * EYE_SLIT_SCALE zurück, sodass aus dem runden Auge ein "happy eye"-Schlitz wird.
+ */
+function Eye({
+  facing,
+  z,
+  activeRef,
+}: {
+  facing: 1 | -1;
+  z: number;
+  activeRef: RefObject<number>;
+}) {
+  const groupRef = useRef<THREE.Group>(null);
+
+  useFrame(() => {
+    const group = groupRef.current;
+    if (!group) return;
+    group.scale.y = THREE.MathUtils.lerp(1, EYE_SLIT_SCALE, activeRef.current);
+  });
+
   return (
-    <group position={[facing * 0.32, 1.03, z]}>
+    <group ref={groupRef} position={[facing * 0.34, 1.05, z]}>
       <mesh>
-        <sphereGeometry args={[0.05, 10, 10]} />
+        <sphereGeometry args={[0.062, 10, 10]} />
         <meshStandardMaterial color="#ffffff" roughness={0.3} />
       </mesh>
-      <mesh position={[facing * 0.018, 0, 0]}>
-        <sphereGeometry args={[0.032, 8, 8]} />
+      <mesh position={[facing * 0.022, 0, 0]}>
+        <sphereGeometry args={[0.04, 8, 8]} />
         <meshStandardMaterial color="#14100f" />
       </mesh>
-      <mesh position={[facing * 0.03, 0.015, 0.015]}>
-        <sphereGeometry args={[0.011, 6, 6]} />
+      <mesh position={[facing * 0.038, 0.019, 0.019]}>
+        <sphereGeometry args={[0.015, 6, 6]} />
         <meshStandardMaterial color="#ffffff" />
       </mesh>
     </group>
@@ -98,9 +146,11 @@ function Eye({ facing, z }: { facing: 1 | -1; z: number }) {
 function PenguinBody({
   facing,
   colors,
+  activeRef,
 }: {
   facing: 1 | -1;
   colors: PenguinColors;
+  activeRef: RefObject<number>;
 }) {
   const shadowTexture = getSoftShadowTexture();
 
@@ -173,27 +223,28 @@ function PenguinBody({
         <meshStandardMaterial color={colors.body} roughness={0.5} />
       </mesh>
 
-      {/* Kopf — überlappt bewusst mit dem oberen Körper für einen nahtlosen Übergang */}
-      <mesh position={[0, 0.98, 0]} scale={[0.38, 0.36, 0.38]}>
+      {/* Kopf — deutlich größer (Kindchenschema), überlappt bewusst mit dem
+          oberen Körper für einen nahtlosen Übergang */}
+      <mesh position={[0, 1.0, 0]} scale={[0.46, 0.44, 0.46]}>
         <sphereGeometry args={[0.5, SPHERE_SEGMENTS, SPHERE_RINGS]} />
         <meshStandardMaterial color={colors.body} roughness={0.5} />
       </mesh>
       {/* Gesichtsfleck */}
-      <mesh position={[facing * 0.21, 0.99, 0]} scale={[0.23, 0.21, 0.18]}>
+      <mesh position={[facing * 0.25, 1.01, 0]} scale={[0.28, 0.26, 0.22]}>
         <sphereGeometry args={[0.5, 14, 12]} />
         <meshStandardMaterial color={colors.face} roughness={0.6} />
       </mesh>
 
       <BlushCheeks facing={facing} color={colors.blush} />
-      <Eye facing={facing} z={0.11} />
-      <Eye facing={facing} z={-0.11} />
+      <Eye facing={facing} z={0.13} activeRef={activeRef} />
+      <Eye facing={facing} z={-0.13} activeRef={activeRef} />
 
-      {/* Schnabel — kleiner & niedlicher als zuvor */}
+      {/* Schnabel — kleiner & niedlicher, sitzt dicht am vergrößerten Kopf */}
       <mesh
-        position={[facing * 0.36, 0.97, 0]}
+        position={[facing * 0.33, 1.0, 0]}
         rotation={[0, 0, (facing * -Math.PI) / 2]}
       >
-        <coneGeometry args={[0.042, 0.12, 10]} />
+        <coneGeometry args={[0.03, 0.08, 10]} />
         <meshStandardMaterial color="#e8c77d" roughness={0.4} />
       </mesh>
 
@@ -302,6 +353,37 @@ function KissHearts({
   );
 }
 
+/**
+ * Der EINE große Kuss-Herz-Pop am geometrisch hergeleiteten Kontaktpunkt der
+ * Schnabelspitzen (siehe MEET_X/KISS_CONTACT_* oben) — poppt mit Overshoot
+ * auf, sobald `activeRef` (Kuss-Kontakt) aktiv wird, und behält danach ein
+ * leises Twinkle-Wackeln.
+ */
+function ContactHeart({ activeRef }: { activeRef: RefObject<number> }) {
+  const meshRef = useRef<THREE.Mesh>(null);
+
+  useFrame((state) => {
+    const mesh = meshRef.current;
+    if (!mesh) return;
+    const amount = Math.max(easeOutBack(activeRef.current), 0);
+    mesh.scale.setScalar(CONTACT_HEART_SCALE * amount);
+    mesh.rotation.z =
+      Math.PI / 4 +
+      Math.sin(state.clock.elapsedTime * 1.5) * 0.08 * activeRef.current;
+  });
+
+  return (
+    <mesh
+      ref={meshRef}
+      position={[KISS_CONTACT_X, KISS_CONTACT_Y, KISS_CONTACT_Z]}
+      rotation={[0, 0, Math.PI / 4]}
+    >
+      <octahedronGeometry args={[1, 0]} />
+      <meshStandardMaterial color="#e07186" roughness={0.3} metalness={0.25} />
+    </mesh>
+  );
+}
+
 export const PenguinsScene = ({ index }: SectionProps) => {
   const scroll = useScroll();
   const reducedMotion = usePrefersReducedMotion();
@@ -311,6 +393,10 @@ export const PenguinsScene = ({ index }: SectionProps) => {
   const lean1Ref = useRef<THREE.Group>(null);
   const lean2Ref = useRef<THREE.Group>(null);
   const activeRef = useRef(0);
+  /** Ambiente Herz-Loop-Intensität — anders als `activeRef` (Kuss-Kontakt für
+   *  Augen/ContactHeart) bereits >0, sobald die Section sichtbar/zentriert
+   *  ist, und steigt mit `progress` bis zum Kuss auf ihr Maximum. */
+  const heartIntensityRef = useRef(0);
 
   useFrame((state, delta) => {
     const root = rootRef.current;
@@ -379,10 +465,26 @@ export const PenguinsScene = ({ index }: SectionProps) => {
       4,
       delta,
     );
+
+    // Herzen: sobald die Section sichtbar/zentriert ist (vis), steigt die
+    // Intensität mit dem Fortschritt bis zum Kuss-Schwellwert auf ihr Maximum.
+    const heartProgressFactor = THREE.MathUtils.clamp(
+      progress / KISS_THRESHOLD,
+      0,
+      1,
+    );
+    const heartTarget =
+      vis * THREE.MathUtils.lerp(HEART_BASE_INTENSITY, 1, heartProgressFactor);
+    heartIntensityRef.current = THREE.MathUtils.damp(
+      heartIntensityRef.current,
+      heartTarget,
+      3,
+      delta,
+    );
   });
 
   return (
-    <group ref={rootRef} position={[0, -0.75, 0]}>
+    <group ref={rootRef} position={[0, -0.95, 0]}>
       <IceFloe />
 
       {/* Leichter Yaw-Versatz dreht die Gesichter etwas zur Kamera, statt reinem Profil */}
@@ -392,7 +494,7 @@ export const PenguinsScene = ({ index }: SectionProps) => {
         rotation={[0, -0.32, 0]}
       >
         <group ref={lean1Ref}>
-          <PenguinBody facing={1} colors={DARK_PENGUIN} />
+          <PenguinBody facing={1} colors={DARK_PENGUIN} activeRef={activeRef} />
         </group>
       </group>
 
@@ -402,19 +504,24 @@ export const PenguinsScene = ({ index }: SectionProps) => {
         rotation={[0, 0.32, 0]}
       >
         <group ref={lean2Ref}>
-          <PenguinBody facing={-1} colors={PINK_PENGUIN} />
+          <PenguinBody
+            facing={-1}
+            colors={PINK_PENGUIN}
+            activeRef={activeRef}
+          />
         </group>
       </group>
 
-      <KissHearts activeRef={activeRef} reducedMotion={reducedMotion} />
+      <ContactHeart activeRef={activeRef} />
+      <KissHearts activeRef={heartIntensityRef} reducedMotion={reducedMotion} />
     </group>
   );
 };
 
 export const PenguinsHtml = () => (
-  <div className="exp-content" style={{ paddingTop: "10vh" }}>
+  <div className="exp-content" style={{ paddingTop: "9vh" }}>
     <span className="exp-kicker">Kapitel 4</span>
     <h2 className="exp-title">Du &amp; ich</h2>
-    <p className="exp-subtitle">Zwei Pinguine, ein Kuss — für immer.</p>
+    <p className="exp-subtitle">Der schwarze bin ich. Der rosa bist du.</p>
   </div>
 );
