@@ -107,6 +107,29 @@ const PhotosPage = ({ images, currentPage, totalPages, onNext, onPrev }: PhotosP
         Ein schönes jahr mit der schönsten person ❤️
       </motion.h2>
 
+      {/* Slideshow Indicator - static subtitle, clear of nav & polaroid */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 2, duration: 1 }}
+        style={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          gap: '6px',
+          marginTop: '0.5rem',
+          marginBottom: '1rem',
+          color: '#4a4a4a',
+          fontSize: '0.8rem',
+          opacity: 0.7
+        }}
+      >
+        <span style={{ fontSize: '1.2rem' }}>👆</span>
+        <span style={{ fontStyle: 'italic', fontFamily: 'var(--font-serif)' }}>
+          Diashow &mdash; Warten für mehr
+        </span>
+      </motion.div>
+
       <div className="gallery-layout">
         {/* Left: Camera Decoration - Larger and Behind */}
         <motion.div 
@@ -126,35 +149,11 @@ const PhotosPage = ({ images, currentPage, totalPages, onNext, onPrev }: PhotosP
           animate={{ scale: 1, opacity: 1 }}
           transition={{ duration: 0.6, delay: 0.1 }}
         >
-          <PolaroidPhoto 
-            images={polaroidImages} 
+          <PolaroidPhoto
+            images={polaroidImages}
             caption="PRADA"
             rotation={-2}
           />
-          
-          {/* Slideshow Indicator */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 2, duration: 1 }}
-            style={{
-              position: 'absolute',
-              bottom: '-40px',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              color: '#4a4a4a',
-              fontSize: '0.8rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              opacity: 0.7
-            }}
-          >
-            <span style={{ fontSize: '1.2rem' }}>👆</span> 
-            <span style={{ fontStyle: 'italic', fontFamily: 'var(--font-serif)' }}>
-              Diashow &mdash; Warten für mehr
-            </span>
-          </motion.div>
         </motion.div>
 
         {/* Right: Two Film Strips - Layered */}
