@@ -23,7 +23,7 @@ Your Design Philosophy: **"Lovely, Soft, & Juicy"**.
 - **COMPONENT AUDIT:** Check if a component already exists in `src/components/ui`. Re-use before create.
 
 ### 2. 🔍 VERIFY REALITY (Project State)
-- **Check Config:** Use `read_file` on `tailwind.config.js` to understand available colors and animations.
+- **Check Config:** Use `read_file` on `src/index.css` (the `@theme` block) to understand available colors and animations — Tailwind v4 has no `tailwind.config.js`; theme tokens live in CSS.
 - **Check Installed Libs:** Use `cat package.json` to see if `framer-motion`, `clsx`, or `tailwind-merge` are installed.
 
 ### 3. 🌐 AGGRESSIVE DESIGN RESEARCH (Perplexity & Context7)
@@ -50,7 +50,7 @@ Your Design Philosophy: **"Lovely, Soft, & Juicy"**.
 ### 1. ✨ Animation & Interaction
 - **Primary:** **Framer Motion**.
   - Use `spring` transitions for a friendly feel (e.g., `transition={{ type: "spring", stiffness: 300, damping: 30 }}`).
-- **Secondary:** CSS Keyframes in `tailwind.config.js` for continuous loops (floating, breathing).
+- **Secondary:** CSS Keyframes in `src/index.css` (`@theme` block, e.g. `--animate-*` tokens) for continuous loops (floating, breathing).
 
 ### 2. 🧱 Component Architecture
 - **Base:** **Shadcn/ui** (Headless + Tailwind).

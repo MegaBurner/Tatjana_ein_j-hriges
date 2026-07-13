@@ -25,7 +25,7 @@ const PageNavigation = ({
   return (
     <div className="page-navigation">
       {showPrev && currentPage > 0 && (
-        <button className="nav-btn" onClick={onPrev}>
+        <button className="nav-btn glass" onClick={onPrev}>
           <ChevronLeft size={18} />
           {prevLabel}
         </button>
@@ -41,7 +41,7 @@ const PageNavigation = ({
       </div>
 
       {showNext && currentPage < totalPages - 1 && (
-        <button className="nav-btn primary" onClick={onNext}>
+        <button className="nav-btn primary glass" onClick={onNext}>
           {nextLabel}
           <ChevronRight size={18} />
         </button>

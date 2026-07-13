@@ -120,3 +120,20 @@ src/three/
   wird nicht angefasst; Entscheidung über Commit liegt beim User.
 - Ungenutzte HEIC/DNG-Dateien in `public/memories/` blähen das Deployment auf;
   Aufräumen ist optionaler Folgeschritt, nicht Teil dieses Overhauls.
+
+## Nachträglich descoped
+
+- **Gyroskop-Parallax:** Im Scope („dezenter Parallax auf Maus/Gyroskop", siehe
+  Punkt 4 oben) genannt, aber nicht umgesetzt — nur Pointer-Parallax
+  (`ParallaxRig` in `BackgroundScene.tsx`, Pointer-Tilt in `Vinyl3D.tsx`) ist
+  implementiert. Grund: `DeviceOrientationEvent` erfordert auf iOS 13+ einen
+  expliziten Permission-Prompt (`requestPermission()`), der eine zusätzliche
+  Nutzerinteraktion (Button-Tap) voraussetzt. Für einen rein dekorativen
+  Hintergrundeffekt wurde das als unangemessen aufdringlich bewertet und
+  bewusst weggelassen.
+- **Karten-Glassmorphism:** Im Scope („Glassmorphism für Karten und
+  `PageNavigation`", Punkt 6 oben) genannt, aber nur für die Navigation
+  umgesetzt. Die Audio-Controls hatten bereits vor diesem Overhaul eine
+  Glas-Optik und benötigten keine Anpassung; weitere Karten-Komponenten
+  (Polaroid, FilmStrip etc.) folgen bewusst einem anderen visuellen Stil
+  (Papier-/Foto-Ästhetik) und wurden daher nicht auf Glassmorphism umgestellt.
