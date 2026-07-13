@@ -11,18 +11,19 @@ const PAGE_WIDTH = 1.2;
 const PAGE_HEIGHT = 1.6;
 const COVER_OPEN_SPAN = 0.25;
 
+// Web-optimierte Kopien (max. 1600px, ~2,4 MB gesamt statt 12,6 MB Originale)
 const PHOTO_FILES = [
-  'IMG_4891.JPG',
-  'IMG_4909.JPG',
-  'IMG_4913.JPG',
-  'IMG_5006.JPG',
-  'IMG_6280.JPG',
-  'IMG_7321.JPG',
+  'IMG_4891.jpg',
+  'IMG_4909.jpg',
+  'IMG_4913.jpg',
+  'IMG_5006.jpg',
+  'IMG_6280.jpg',
+  'IMG_7321.jpg',
   'IMG_7411.jpg',
   'IMG_8099.jpg',
 ];
 
-const PHOTO_URLS = PHOTO_FILES.map((file) => `${import.meta.env.BASE_URL}memories/${file}`);
+const PHOTO_URLS = PHOTO_FILES.map((file) => `${import.meta.env.BASE_URL}memories/web/${file}`);
 
 function markSRGB(textures: THREE.Texture[]) {
   textures.forEach((texture) => {

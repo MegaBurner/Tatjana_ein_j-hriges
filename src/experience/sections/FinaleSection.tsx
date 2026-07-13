@@ -274,7 +274,9 @@ export const FinaleScene = ({ index }: SectionProps) => {
 export const FinaleHtml = () => (
   <div className="exp-content" style={{ paddingTop: '11vh' }}>
     <span className="exp-kicker">Für immer</span>
-    <h2 className="exp-title">Volim te ❤️</h2>
+    <h2 className="exp-title">
+      Volim te <span style={{ color: 'var(--accent-rose-deep)', fontStyle: 'normal' }}>♥</span>
+    </h2>
     <p className="exp-subtitle">Auf noch viele weitere Jahre mit dir.</p>
     <p className="exp-subtitle" style={{ opacity: 0.6 }}>
       — M.

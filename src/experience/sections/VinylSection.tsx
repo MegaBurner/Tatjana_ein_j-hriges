@@ -181,7 +181,13 @@ export const VinylScene = ({ audioRef, currentSong, index }: SectionProps) => {
   );
 };
 
-export const VinylHtml = ({ audioRef, onNextSong, onPrevSong, currentSong }: SectionProps) => (
+export const VinylHtml = ({
+  audioRef,
+  onNextSong,
+  onPrevSong,
+  currentSong,
+  isPlaying,
+}: SectionProps) => (
   <div className="exp-content" style={{ paddingTop: '8vh' }}>
     <span className="exp-kicker">Kapitel 2</span>
     <h2 className="exp-title">Unsere Songs</h2>
@@ -192,6 +198,7 @@ export const VinylHtml = ({ audioRef, onNextSong, onPrevSong, currentSong }: Sec
       </button>
       <button
         className="exp-btn primary"
+        aria-label={isPlaying ? 'Pause' : 'Abspielen'}
         onClick={() => {
           const audio = audioRef.current;
           if (!audio) return;
@@ -199,7 +206,7 @@ export const VinylHtml = ({ audioRef, onNextSong, onPrevSong, currentSong }: Sec
           else audio.pause();
         }}
       >
-        Play / Pause
+        {isPlaying ? '❚❚ Pause' : '▶ Play'}
       </button>
       <button className="exp-btn" onClick={onNextSong} aria-label="Nächster Song">
         ›

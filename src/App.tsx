@@ -1,11 +1,11 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Music, VolumeX } from 'lucide-react';
 import { detectWebGL } from './three/hooks/useWebGL';
-import LegacyApp from './LegacyApp';
 import PDFModal from './components/PDFModal/PDFModal';
 import type { Song } from './experience/types';
 
 const Experience = lazy(() => import('./experience/Experience'));
+const LegacyApp = lazy(() => import('./LegacyApp'));
 
 const resolvePath = (path: string) => {
   return import.meta.env.BASE_URL + path.replace(/^\//, '');
@@ -75,7 +75,11 @@ function App() {
   }, [songIndex]);
 
   if (!HAS_WEBGL) {
-    return <LegacyApp />;
+    return (
+      <Suspense fallback={null}>
+        <LegacyApp />
+      </Suspense>
+    );
   }
 
   return (
@@ -93,6 +97,7 @@ function App() {
         <Experience
           audioRef={audioRef}
           currentSong={songs[songIndex]}
+          isPlaying={isPlaying}
           isMusicStarted={isMusicStarted}
           onStartMusic={startMusic}
           onNextSong={nextSong}
@@ -113,7 +118,7 @@ function App() {
       <PDFModal
         isOpen={letterOpen}
         onClose={() => setLetterOpen(false)}
-        pdfUrl={resolvePath('/letter.pdf')}
+        pdfUrl={resolvePath('/notiz.pdf')}
       />
     </div>
   );

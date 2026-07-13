@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Download } from 'lucide-react';
@@ -11,17 +11,21 @@ interface PDFModalProps {
 }
 
 const PDFModal = ({ isOpen, onClose, pdfUrl }: PDFModalProps) => {
-  // ESC key handler
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  // ESC key handler — Fokus auf den Modal-Container legen, damit ESC nicht
+  // im <object>-PDF-Viewer verschluckt wird
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
-    
+
     if (isOpen) {
       document.addEventListener('keydown', handleEscape);
       document.body.style.overflow = 'hidden'; // Prevent scroll
+      contentRef.current?.focus();
     }
-    
+
     return () => {
       document.removeEventListener('keydown', handleEscape);
       document.body.style.overflow = '';
@@ -48,8 +52,10 @@ const PDFModal = ({ isOpen, onClose, pdfUrl }: PDFModalProps) => {
         exit={{ opacity: 0 }}
         onClick={onClose}
       >
-        <motion.div 
+        <motion.div
           className="pdf-modal-content"
+          ref={contentRef}
+          tabIndex={-1}
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 20 }}

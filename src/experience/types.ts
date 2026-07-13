@@ -10,6 +10,7 @@ export interface Song {
 export interface SectionProps {
   audioRef: RefObject<HTMLAudioElement | null>;
   currentSong: Song;
+  isPlaying: boolean;
   isMusicStarted: boolean;
   onStartMusic: () => void;
   onNextSong: () => void;
