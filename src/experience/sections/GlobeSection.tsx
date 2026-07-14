@@ -55,6 +55,20 @@ const EUROPE_FOCUS_LON_DEG = 15;
  */
 const EUROPE_TARGET_ROTATION_Y =
   -THREE.MathUtils.degToRad(EUROPE_FOCUS_LON_DEG);
+/**
+ * Sanftes Pendeln um den Europa-Anker, sobald das Damping greift. Ohne das
+ * stünde der Globus bei zentrierter Section komplett still: sectionProgress
+ * ist dort index/(PAGES-1) = 6/8 = 0.75 > EUROPE_LOCK_THRESHOLD, d. h. die
+ * Idle-Drehung (unten) läuft nur während des Rein-/Rausscrollens.
+ */
+const EUROPE_PENDULUM_AMPLITUDE = 0.15;
+/** Winkelfrequenz des Pendel-Sinus (rad/s) — Periode ≈ 8 s. */
+const EUROPE_PENDULUM_FREQUENCY = 0.8;
+/** Dämpfungsrate, mit der Idle-Drehung/Pendel nach einem Drag wieder einblenden. */
+const IDLE_RESUME_DAMP = 1.5;
+/** Dezenter Idle-Puls aller Pin-Köpfe: ±5 % Scale, über pulsePhase versetzt. */
+const PIN_IDLE_PULSE_AMPLITUDE = 0.05;
+const PIN_IDLE_PULSE_SPEED = 1.6;
 
 // --- Drag-Rotation (Maus/Touch) -----------------------------------------
 /** Ab dieser Sichtbarkeit darf per Maus/Touch am Globus gedreht werden. */
@@ -753,6 +767,14 @@ function Pin({
       );
       pinScale *= 1 + Math.sin(tapT * Math.PI) * PIN_PULSE_AMPLITUDE;
     }
+    // Dezenter Dauer-Puls (±5 %), pro Pin über pulsePhase versetzt —
+    // reduced-motion: statisch.
+    if (!reducedMotion) {
+      pinScale *=
+        1 +
+        Math.sin(state.clock.elapsedTime * PIN_IDLE_PULSE_SPEED + pulsePhase) *
+          PIN_IDLE_PULSE_AMPLITUDE;
+    }
     scaleGroup.scale.setScalar(pinScale);
 
     if (
@@ -869,6 +891,8 @@ export const GlobeScene = ({ index }: SectionProps) => {
   const velocityRef = useRef(0);
   /** Zeitstempel (performance.now()) der letzten Drag-Aktivität. */
   const lastDragActivityRef = useRef(0);
+  /** Weiches Wiederanlaufen der Idle-Bewegung nach einem Drag (0 → 1 gedämpft). */
+  const idleBlendRef = useRef(0);
 
   /** Aktiver Pin-Tap (Label + Herzchen); null, wenn nichts aufgeploppt ist. */
   const [activeTap, setActiveTap] = useState<PinTapState | null>(null);
@@ -969,7 +993,7 @@ export const GlobeScene = ({ index }: SectionProps) => {
     };
   }, []);
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     const root = rootRef.current;
     if (!root) return;
     const vis = sectionVisibility(scroll, index);
@@ -1018,6 +1042,7 @@ export const GlobeScene = ({ index }: SectionProps) => {
       // Während des Drags und für die Grace-Period danach: Idle-Drehung und
       // Europa-Damping pausieren. Nur nach Loslassen (nicht während aktivem
       // Drag) und nur ohne reduced-motion läuft die Trägheit sanft aus.
+      idleBlendRef.current = 0;
       if (!dragActiveRef.current && !reducedMotion) {
         if (Math.abs(velocityRef.current) > DRAG_VELOCITY_EPSILON) {
           rotationGroup.rotation.y += velocityRef.current * delta;
@@ -1034,14 +1059,32 @@ export const GlobeScene = ({ index }: SectionProps) => {
       return;
     }
 
+    // Nach der Drag-Grace-Period blendet die Idle-Bewegung weich wieder ein.
+    idleBlendRef.current = THREE.MathUtils.damp(
+      idleBlendRef.current,
+      1,
+      IDLE_RESUME_DAMP,
+      delta,
+    );
+
     if (progress > EUROPE_LOCK_THRESHOLD) {
+      // Europa bleibt verankert, aber der Globus pendelt sanft darum —
+      // ein fest eingefrorener Anker wirkte leblos. Das Damping übernimmt
+      // zugleich das weiche Wiedereinschwingen nach einem Drag.
+      // reduced-motion: statischer Anker (Pendel-Anteil 0).
+      const pendulum = reducedMotion
+        ? 0
+        : Math.sin(state.clock.elapsedTime * EUROPE_PENDULUM_FREQUENCY) *
+          EUROPE_PENDULUM_AMPLITUDE *
+          idleBlendRef.current;
+      const targetRotationY = EUROPE_TARGET_ROTATION_Y + pendulum;
       // Kürzesten Drehweg zum Ziel wählen, egal wo die Idle-Drehung stand.
       const current = rotationGroup.rotation.y;
       const twoPi = Math.PI * 2;
       const shortestTarget =
         current +
         THREE.MathUtils.euclideanModulo(
-          EUROPE_TARGET_ROTATION_Y - current + Math.PI,
+          targetRotationY - current + Math.PI,
           twoPi,
         ) -
         Math.PI;
@@ -1053,7 +1096,8 @@ export const GlobeScene = ({ index }: SectionProps) => {
       );
     } else if (!reducedMotion) {
       rotationGroup.rotation.y =
-        (rotationGroup.rotation.y + delta * IDLE_ROTATION_SPEED) %
+        (rotationGroup.rotation.y +
+          delta * IDLE_ROTATION_SPEED * idleBlendRef.current) %
         (Math.PI * 2);
     }
   });

@@ -7,6 +7,7 @@ import * as THREE from "three";
 import { sectionProgress, sectionVisibility } from "../useSectionProgress";
 import { usePrefersReducedMotion } from "../../three/hooks/useWebGL";
 import { getSoftShadowTexture } from "../softShadow";
+import { PAGES } from "../constants";
 import type { SectionProps } from "../types";
 
 const ROLL_COUNT = 5;
@@ -15,6 +16,9 @@ const STEAM_COLUMNS = 3;
 const STEAM_LOOP_DURATION = 3.6;
 const STEAM_RISE_HEIGHT = 1.3;
 const STEAM_BASE_Y = 0.28;
+/** Wie schnell die Dampf-Intensität abfällt, wenn die Section vom
+ *  Zentrum wegscrollt (1/Progress-Einheit). */
+const STEAM_INTENSITY_FALLOFF = 1.6;
 const FLECK_COUNT = 8;
 /** Unterhalb dieser Sichtbarkeit lohnt sich keine Matrix-Neuberechnung mehr. */
 const VISIBILITY_EPSILON = 0.005;
@@ -54,45 +58,119 @@ const PUFF_COUNT = PUFF_SEEDS.length;
 const PUFF_TOTAL_DURATION =
   PUFF_RISE_DURATION + Math.max(...PUFF_SEEDS.map((seed) => seed.delay));
 
-// --- Standard-Idle: feiner Dauer-Dampf über dem Teller --------------------
+// --- Standard-Idle: deutlicher Dauer-Dampf über dem Teller ----------------
 /** Deutlich langsamer als die Klick-Wölkchen (vgl. PUFF_RISE_DURATION). */
-const IDLE_STEAM_LOOP_DURATION = 3.2;
-/** Steigt etwas höher auf als die Klick-Wölkchen, dafür gemächlich. */
-const IDLE_STEAM_RISE_HEIGHT = 0.7;
-const IDLE_STEAM_SWAY = 0.06;
+const IDLE_STEAM_LOOP_DURATION = 4.4;
+/** Steigt höher auf als die Klick-Wölkchen, dafür gemächlich. */
+const IDLE_STEAM_RISE_HEIGHT = 0.95;
+const IDLE_STEAM_SWAY = 0.09;
+/** Eigenes Material statt des geteilten Klick-Puff-Materials (Opacity 0.35):
+ *  kräftiger deckend, damit der Dampf beim ersten Blick auffällt. */
+const IDLE_STEAM_OPACITY = 0.55;
 
 interface IdleSteamSeed {
   x: number;
   z: number;
-  /** Zeitversatz innerhalb der Endlosschleife — die drei steigen gestaffelt auf. */
+  /** Zeitversatz innerhalb der Endlosschleife — die Wölkchen steigen gestaffelt auf. */
   phase: number;
   swayPhase: number;
   scale: number;
 }
 
-/** Drei Loop-Instanzen im SELBEN Instanz-Mesh wie die Klick-Wölkchen (kein
- *  zweites Partikelsystem). Kleinere Scales als PUFF_SEEDS: wirkt feiner und
- *  durchsichtiger, da das geteilte Material nur eine globale Opacity hat. */
+/** Fünf große Wölkchen in EIGENEM Instanz-Mesh mit eigenem, deutlich
+ *  sichtbarem Material. Vorher: 3 Mini-Instanzen (Scale 0.032–0.038) im
+ *  geteilten Klick-Puff-Mesh — bei Opacity 0.35 praktisch unsichtbar. */
 const IDLE_STEAM_SEEDS: IdleSteamSeed[] = [
-  { x: -0.18, z: 0.12, phase: 0, swayPhase: 0.9, scale: 0.038 },
+  { x: -0.34, z: 0.16, phase: 0, swayPhase: 0.9, scale: 0.075 },
   {
-    x: 0.22,
-    z: -0.08,
-    phase: IDLE_STEAM_LOOP_DURATION / 3,
+    x: 0.3,
+    z: -0.12,
+    phase: IDLE_STEAM_LOOP_DURATION * 0.2,
     swayPhase: 3.1,
-    scale: 0.032,
+    scale: 0.06,
   },
   {
-    x: 0.02,
-    z: 0.2,
-    phase: (IDLE_STEAM_LOOP_DURATION * 2) / 3,
+    x: 0.04,
+    z: 0.24,
+    phase: IDLE_STEAM_LOOP_DURATION * 0.4,
     swayPhase: 5.2,
-    scale: 0.036,
+    scale: 0.09,
+  },
+  {
+    x: -0.12,
+    z: -0.26,
+    phase: IDLE_STEAM_LOOP_DURATION * 0.6,
+    swayPhase: 1.8,
+    scale: 0.07,
+  },
+  {
+    x: 0.42,
+    z: 0.2,
+    phase: IDLE_STEAM_LOOP_DURATION * 0.8,
+    swayPhase: 4.0,
+    scale: 0.065,
   },
 ];
 const IDLE_STEAM_COUNT = IDLE_STEAM_SEEDS.length;
-/** Gesamtzahl der Instanzen im Puff-Mesh: Klick-Wölkchen + Idle-Dampf. */
-const PUFF_MESH_COUNT = PUFF_COUNT + IDLE_STEAM_COUNT;
+
+// --- Verstecktes Herz-Ei: 3 schnelle Taps auf Rollen/Teller ----------------
+// Bewusst nirgends im UI angeteasert. Drei Taps innerhalb des Zeitfensters
+// lösen eine gestaffelte Hüpf-Welle aller Rollen aus, plus einen Dampf-Burst,
+// dessen Wölkchen sich kurz zu einer Herz-Silhouette formieren.
+const EGG_TAP_COUNT = 3;
+const EGG_TAP_WINDOW_S = 2.5;
+/** Flugzeit eines einzelnen Rollen-Hüpfers. */
+const EGG_HOP_DURATION_S = 0.45;
+/** Zeitversatz zwischen den Rollen — ergibt die Welle über den Teller. */
+const EGG_HOP_STAGGER_S = 0.12;
+const EGG_HOP_HEIGHT = 0.22;
+// Squash & Stretch: in der Luft wird die liegende Rolle runder/kürzer, bei
+// der Landung platter/breiter. Lokal: y = Längsachse, x/z = Querschnitt.
+const EGG_AIR_FATTEN = 0.18;
+const EGG_AIR_SHORTEN = 0.12;
+const EGG_LAND_WIDEN = 0.2;
+const EGG_LAND_FLATTEN = 0.16;
+const EGG_LAND_DURATION_S = 0.18;
+/** reduced-motion-Ersatz: sanftes Aufleuchten der Rollen statt Hüpfen. */
+const EGG_GLOW_DURATION_S = 1.4;
+const EGG_GLOW_MAX_INTENSITY = 0.55;
+const EGG_GLOW_COLOR = "#ffc98a";
+
+/** Dampf-Burst in Herz-Formation (eigenes Instanz-Mesh, ruht bei Scale 0). */
+const HEART_STEAM_COUNT = 8;
+const HEART_STEAM_OPACITY = 0.6;
+const HEART_BURST_DURATION_S = 1.9;
+const HEART_BURST_RISE = 0.85;
+/** Anteil der Burst-Dauer, in dem die Wölkchen in die Herz-Form auffächern. */
+const HEART_FORM_PORTION = 0.35;
+const HEART_PUFF_SCALE = 0.075;
+/** Größe der Herz-Silhouette (Skalierung der parametrischen Herzkurve). */
+const HEART_SHAPE_SCALE = 0.032;
+
+/** Punkte auf der klassischen parametrischen Herzkurve, frontal in der
+ *  lokalen XY-Ebene (x horizontal, y = Aufstiegsachse über dem Teller). */
+function makeHeartFormationOffsets(count: number): { x: number; y: number }[] {
+  return Array.from({ length: count }, (_, i) => {
+    const t = ((i + 0.5) / count) * Math.PI * 2;
+    return {
+      x: 16 * Math.sin(t) ** 3 * HEART_SHAPE_SCALE,
+      y:
+        (13 * Math.cos(t) -
+          5 * Math.cos(2 * t) -
+          2 * Math.cos(3 * t) -
+          Math.cos(4 * t)) *
+        HEART_SHAPE_SCALE,
+    };
+  });
+}
+const HEART_STEAM_OFFSETS = makeHeartFormationOffsets(HEART_STEAM_COUNT);
+
+/** Gesamtdauer der Hüpf-Welle (letzte Rolle inkl. Landungs-Squash). */
+const EGG_WAVE_TOTAL_S =
+  EGG_HOP_STAGGER_S * (ROLL_COUNT - 1) +
+  EGG_HOP_DURATION_S +
+  EGG_LAND_DURATION_S;
+const EGG_EFFECT_TOTAL_S = Math.max(EGG_WAVE_TOTAL_S, HEART_BURST_DURATION_S);
 
 /** Laufender Wackel-Puls einer angetippten Rolle. */
 interface RollWobbleState {
@@ -235,6 +313,7 @@ function PaprikaFlecks({ rolls, count }: { rolls: RollData[]; count: number }) {
 function SarmaRolls({
   rolls,
   groupRefs,
+  materialRefs,
   onRollTap,
   onRollPointerOver,
   onRollPointerOut,
@@ -242,6 +321,8 @@ function SarmaRolls({
   rolls: RollData[];
   /** Von der Szene gepflegtes Array — der useFrame-Loop wackelt darüber. */
   groupRefs: RefObject<(THREE.Group | null)[]>;
+  /** Rollen-Materialien fürs reduced-motion-Aufleuchten des Herz-Eis. */
+  materialRefs: RefObject<(THREE.MeshStandardMaterial | null)[]>;
   onRollTap: (index: number, event: ThreeEvent<MouseEvent>) => void;
   onRollPointerOver: () => void;
   onRollPointerOut: () => void;
@@ -262,7 +343,15 @@ function SarmaRolls({
         >
           <mesh>
             <capsuleGeometry args={[0.15, 0.4, 6, 12]} />
-            <meshStandardMaterial color={roll.color} roughness={0.75} />
+            <meshStandardMaterial
+              ref={(node) => {
+                materialRefs.current[i] = node;
+              }}
+              color={roll.color}
+              roughness={0.75}
+              emissive={EGG_GLOW_COLOR}
+              emissiveIntensity={0}
+            />
           </mesh>
           <WrapSeams angles={roll.seamAngles} />
           {/* Zarter Glasur-Schimmer: leicht größere, transparente Hülle */}
@@ -362,26 +451,49 @@ export const SarmaScene = ({ index }: SectionProps) => {
   /** Von useFrame gepflegt: reagieren die Rollen gerade auf Klick/Tipp? */
   const visibleEnoughRef = useRef(false);
   const rollGroupRefs = useRef<(THREE.Group | null)[]>([]);
+  const rollMaterialRefs = useRef<(THREE.MeshStandardMaterial | null)[]>([]);
   /** Tap-Anfrage (Roll-Index) aus dem Event-Handler — im useFrame-Loop konsumiert. */
   const tapRequestRef = useRef<number | null>(null);
+  /** Teller-Tap (zählt nur für die versteckte Kombo) — im useFrame-Loop konsumiert. */
+  const plateTapPendingRef = useRef(false);
+  /** clock-Zeiten der letzten EGG_TAP_COUNT Taps für die Kombo-Erkennung. */
+  const comboTapTimesRef = useRef<number[]>(
+    Array.from({ length: EGG_TAP_COUNT }, () => Number.NEGATIVE_INFINITY),
+  );
+  /** Startzeit (clock) des laufenden Herz-Eis; null = inaktiv. */
+  const eggStartRef = useRef<number | null>(null);
   const wobbleRef = useRef<RollWobbleState | null>(null);
   const puffRef = useRef<SteamPuffState | null>(null);
   const puffMeshRef = useRef<THREE.InstancedMesh>(null);
+  const idleSteamMeshRef = useRef<THREE.InstancedMesh>(null);
+  const heartSteamMeshRef = useRef<THREE.InstancedMesh>(null);
   const puffDummy = useMemo(() => new THREE.Object3D(), []);
 
-  // InstancedMesh startet mit Identitäts-Matrizen (sichtbare Kugeln) — alle
-  // Instanzen (Klick-Wölkchen UND Idle-Dampf) deshalb einmalig auf Scale 0
-  // setzen, bis Tap bzw. useFrame-Loop sie animiert.
+  /** sectionProgress ist bei zentrierter Section genau index/(PAGES-1) —
+   *  dort soll die Dampf-Intensität ihr Maximum haben. (Vorher fälschlich
+   *  fix 0.85: der Ambient-Dampf lief beim Betrachten des Tellers dadurch
+   *  nur mit ~50 % Intensität und war kaum zu sehen.) */
+  const steamPeakProgress = index / (PAGES - 1);
+
+  // InstancedMeshes starten mit Identitäts-Matrizen (sichtbare Kugeln) —
+  // alle Effekt-Instanzen (Klick-Wölkchen, Idle-Dampf, Herz-Burst) deshalb
+  // einmalig auf Scale 0 setzen, bis der useFrame-Loop sie animiert.
   useEffect(() => {
-    const mesh = puffMeshRef.current;
-    if (!mesh) return;
     const dummy = new THREE.Object3D();
     dummy.scale.setScalar(0);
     dummy.updateMatrix();
-    for (let i = 0; i < PUFF_MESH_COUNT; i += 1) {
-      mesh.setMatrixAt(i, dummy.matrix);
+    const meshes = [
+      puffMeshRef.current,
+      idleSteamMeshRef.current,
+      heartSteamMeshRef.current,
+    ];
+    for (const mesh of meshes) {
+      if (!mesh) continue;
+      for (let i = 0; i < mesh.count; i += 1) {
+        mesh.setMatrixAt(i, dummy.matrix);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
     }
-    mesh.instanceMatrix.needsUpdate = true;
   }, []);
 
   const handleRollTap = (rollIndex: number, event: ThreeEvent<MouseEvent>) => {
@@ -390,6 +502,15 @@ export const SarmaScene = ({ index }: SectionProps) => {
     // Nur die vorderste getroffene Rolle reagiert.
     event.stopPropagation();
     tapRequestRef.current = rollIndex;
+  };
+
+  /** Teller-Taps zählen ebenfalls zur versteckten Kombo, lösen aber weder
+   *  Wackeln noch Einzel-Puff aus (und ändern bewusst keinen Cursor). */
+  const handlePlateTap = (event: ThreeEvent<MouseEvent>) => {
+    if (!visibleEnoughRef.current) return;
+    if (event.delta > TAP_MAX_DELTA_PX) return;
+    event.stopPropagation();
+    plateTapPendingRef.current = true;
   };
 
   const handleRollPointerOver = () => {
@@ -427,6 +548,101 @@ export const SarmaScene = ({ index }: SectionProps) => {
       };
     }
 
+    // Versteckte Kombo: Roll- UND Teller-Taps zählen. Drei Taps innerhalb
+    // von EGG_TAP_WINDOW_S starten das Herz-Ei (nie, solange eins läuft).
+    const hadTap = tappedIndex !== null || plateTapPendingRef.current;
+    plateTapPendingRef.current = false;
+    if (hadTap && eggStartRef.current === null) {
+      const comboTimes = comboTapTimesRef.current;
+      for (let i = 0; i < comboTimes.length - 1; i += 1) {
+        comboTimes[i] = comboTimes[i + 1];
+      }
+      comboTimes[comboTimes.length - 1] = t;
+      if (t - comboTimes[0] <= EGG_TAP_WINDOW_S) {
+        eggStartRef.current = t;
+        for (let i = 0; i < comboTimes.length; i += 1) {
+          comboTimes[i] = Number.NEGATIVE_INFINITY;
+        }
+      }
+    }
+
+    // Herz-Ei: gestaffelte Hüpf-Welle mit Squash&Stretch + Dampf-Herz
+    // (reduced-motion: nur sanftes Aufleuchten). Alle Hüllkurven enden
+    // exakt bei ihren Ruhewerten — kein separater Aufräum-Frame nötig.
+    const eggStart = eggStartRef.current;
+    if (eggStart !== null) {
+      const eggElapsed = t - eggStart;
+      if (reducedMotion) {
+        const glowT = THREE.MathUtils.clamp(
+          eggElapsed / EGG_GLOW_DURATION_S,
+          0,
+          1,
+        );
+        const glowIntensity =
+          Math.sin(glowT * Math.PI) * EGG_GLOW_MAX_INTENSITY;
+        for (let i = 0; i < rollMaterialRefs.current.length; i += 1) {
+          const material = rollMaterialRefs.current[i];
+          if (material) material.emissiveIntensity = glowIntensity;
+        }
+        if (glowT >= 1) {
+          eggStartRef.current = null;
+        }
+      } else {
+        for (let i = 0; i < ROLL_COUNT; i += 1) {
+          const rollGroup = rollGroupRefs.current[i];
+          if (!rollGroup) continue;
+          const localTime = eggElapsed - i * EGG_HOP_STAGGER_S;
+          const hopT = THREE.MathUtils.clamp(
+            localTime / EGG_HOP_DURATION_S,
+            0,
+            1,
+          );
+          const airS = Math.sin(hopT * Math.PI);
+          const landT = THREE.MathUtils.clamp(
+            (localTime - EGG_HOP_DURATION_S) / EGG_LAND_DURATION_S,
+            0,
+            1,
+          );
+          const landS = Math.sin(landT * Math.PI);
+          rollGroup.position.y = rolls[i].position[1] + airS * EGG_HOP_HEIGHT;
+          const crossScale =
+            1 + airS * EGG_AIR_FATTEN - landS * EGG_LAND_FLATTEN;
+          rollGroup.scale.set(
+            crossScale,
+            1 - airS * EGG_AIR_SHORTEN + landS * EGG_LAND_WIDEN,
+            crossScale,
+          );
+        }
+        // Dampf-Burst: Wölkchen steigen gemeinsam auf und fächern dabei in
+        // die Herz-Silhouette auf (frontal in der lokalen XY-Ebene).
+        const heartMesh = heartSteamMeshRef.current;
+        if (heartMesh) {
+          const burstT = THREE.MathUtils.clamp(
+            eggElapsed / HEART_BURST_DURATION_S,
+            0,
+            1,
+          );
+          const formT = Math.min(burstT / HEART_FORM_PORTION, 1);
+          const heartScale = Math.sin(burstT * Math.PI) * HEART_PUFF_SCALE;
+          for (let i = 0; i < HEART_STEAM_COUNT; i += 1) {
+            const offset = HEART_STEAM_OFFSETS[i];
+            puffDummy.position.set(
+              offset.x * formT,
+              PUFF_BASE_Y + burstT * HEART_BURST_RISE + offset.y * formT,
+              0,
+            );
+            puffDummy.scale.setScalar(heartScale);
+            puffDummy.updateMatrix();
+            heartMesh.setMatrixAt(i, puffDummy.matrix);
+          }
+          heartMesh.instanceMatrix.needsUpdate = true;
+        }
+        if (eggElapsed >= EGG_EFFECT_TOTAL_S) {
+          eggStartRef.current = null;
+        }
+      }
+    }
+
     // Rotation-Puls der angetippten Rolle: abklingender Sinus um den Basis-Tilt.
     const wobble = wobbleRef.current;
     if (wobble) {
@@ -448,7 +664,6 @@ export const SarmaScene = ({ index }: SectionProps) => {
     // (Sinus-Hüllkurve endet bei 0 — kein Aufräum-Frame nötig).
     const puff = puffRef.current;
     const puffMesh = puffMeshRef.current;
-    let puffMatricesDirty = false;
     if (puff && puffMesh) {
       const elapsed = t - puff.start;
       // Index-Schleife statt forEach: keine pro Frame neu allokierte Closure.
@@ -472,19 +687,19 @@ export const SarmaScene = ({ index }: SectionProps) => {
         puffDummy.updateMatrix();
         puffMesh.setMatrixAt(i, puffDummy.matrix);
       }
-      puffMatricesDirty = true;
+      puffMesh.instanceMatrix.needsUpdate = true;
       if (elapsed >= PUFF_TOTAL_DURATION) {
         puffRef.current = null;
       }
     }
 
-    // Standard-Idle (läuft immer, ohne Interaktion): feiner Dauer-Dampf —
-    // die zusätzlichen Instanzen im selben Mesh (Indizes ab PUFF_COUNT)
-    // steigen versetzt in Endlosschleife auf und blenden per Sinus-Hüllkurve
-    // aus. Mit `vis` skaliert (nur sichtbar = animiert, weiches Ein-/
-    // Ausblenden beim Scrollen); prefers-reduced-motion ⇒ aus (Scale bleibt
-    // 0 aus dem useEffect oben).
-    if (puffMesh && !reducedMotion && vis >= VISIBILITY_EPSILON) {
+    // Standard-Idle (läuft immer, ohne Interaktion): deutlicher Dauer-Dampf
+    // im EIGENEN Instanz-Mesh — große Wölkchen steigen versetzt in Endlos-
+    // schleife gemächlich auf und blenden per Sinus-Hüllkurve aus. Mit `vis`
+    // skaliert (weiches Ein-/Ausblenden beim Scrollen);
+    // prefers-reduced-motion ⇒ aus (Scale bleibt 0 aus dem useEffect oben).
+    const idleSteamMesh = idleSteamMeshRef.current;
+    if (idleSteamMesh && !reducedMotion && vis >= VISIBILITY_EPSILON) {
       // Index-Schleife statt forEach: keine pro Frame neu allokierte Closure.
       for (let i = 0; i < IDLE_STEAM_SEEDS.length; i++) {
         const seed = IDLE_STEAM_SEEDS[i];
@@ -500,12 +715,9 @@ export const SarmaScene = ({ index }: SectionProps) => {
         );
         puffDummy.scale.setScalar(seed.scale * Math.sin(loopT * Math.PI) * vis);
         puffDummy.updateMatrix();
-        puffMesh.setMatrixAt(PUFF_COUNT + i, puffDummy.matrix);
+        idleSteamMesh.setMatrixAt(i, puffDummy.matrix);
       }
-      puffMatricesDirty = true;
-    }
-    if (puffMesh && puffMatricesDirty) {
-      puffMesh.instanceMatrix.needsUpdate = true;
+      idleSteamMesh.instanceMatrix.needsUpdate = true;
     }
 
     const plateGroup = plateGroupRef.current;
@@ -523,10 +735,10 @@ export const SarmaScene = ({ index }: SectionProps) => {
       );
     }
 
-    // Dampf-Intensität: Maximum, wenn die Section zentriert im Viewport steht
-    // (progress ≈ 0.83 bei Zentrierung — siehe sectionProgress-Semantik).
+    // Dampf-Intensität: Maximum, wenn die Section zentriert im Viewport
+    // steht (siehe steamPeakProgress-Herleitung oben).
     const targetIntensity = THREE.MathUtils.clamp(
-      1 - Math.abs(progress - 0.85) * 2.2,
+      1 - Math.abs(progress - steamPeakProgress) * STEAM_INTENSITY_FALLOFF,
       0,
       1,
     );
@@ -573,18 +785,19 @@ export const SarmaScene = ({ index }: SectionProps) => {
       </mesh>
 
       <group ref={plateGroupRef} position={[0, -0.45, 0]}>
-        {/* Teller: äußerer flacher Rand + innere leicht erhöhte Fläche */}
-        <mesh>
+        {/* Teller: äußerer flacher Rand + innere leicht erhöhte Fläche.
+            onClick zählt still zur versteckten Tap-Kombo (Herz-Ei). */}
+        <mesh onClick={handlePlateTap}>
           <cylinderGeometry args={[1.3, 1.3, 0.07, 48]} />
           <meshStandardMaterial color="#ffffff" roughness={0.25} />
         </mesh>
-        <mesh position={[0, 0.025, 0]}>
+        <mesh position={[0, 0.025, 0]} onClick={handlePlateTap}>
           <cylinderGeometry args={[1.05, 1.05, 0.04, 48]} />
           <meshStandardMaterial color="#f7f5f0" roughness={0.3} />
         </mesh>
 
         {/* Paprika-Tomaten-Sauce, eingelassen in den Teller */}
-        <mesh position={[0, 0.047, 0]}>
+        <mesh position={[0, 0.047, 0]} onClick={handlePlateTap}>
           <cylinderGeometry args={[0.75, 0.75, 0.01, 32]} />
           <meshStandardMaterial color="#b3552e" roughness={0.35} />
         </mesh>
@@ -592,6 +805,7 @@ export const SarmaScene = ({ index }: SectionProps) => {
         <SarmaRolls
           rolls={rolls}
           groupRefs={rollGroupRefs}
+          materialRefs={rollMaterialRefs}
           onRollTap={handleRollTap}
           onRollPointerOver={handleRollPointerOver}
           onRollPointerOut={handleRollPointerOut}
@@ -604,19 +818,47 @@ export const SarmaScene = ({ index }: SectionProps) => {
           index={index}
         />
 
-        {/* Ein gemeinsames Instanz-Mesh: Indizes 0..PUFF_COUNT-1 sind die
-            Klick-Wölkchen über der angetippten Rolle, danach folgen die
-            Idle-Dauer-Dampf-Instanzen — gleiche weiche Optik wie der
-            Ambient-Dampf, keine neuen Texturen, kein zweites System */}
+        {/* Klick-Wölkchen über der angetippten Rolle (feiner, kurzer Stoß) */}
         <instancedMesh
           ref={puffMeshRef}
-          args={[undefined, undefined, PUFF_MESH_COUNT]}
+          args={[undefined, undefined, PUFF_COUNT]}
         >
           <sphereGeometry args={[1, 8, 8]} />
           <meshStandardMaterial
             color="#ffffff"
             transparent
             opacity={0.35}
+            roughness={0.9}
+            depthWrite={false}
+          />
+        </instancedMesh>
+
+        {/* Dauer-Idle-Dampf: eigenes Mesh mit kräftigerem Material, damit
+            der Teller sichtbar von sich aus dampft */}
+        <instancedMesh
+          ref={idleSteamMeshRef}
+          args={[undefined, undefined, IDLE_STEAM_COUNT]}
+        >
+          <sphereGeometry args={[1, 8, 8]} />
+          <meshStandardMaterial
+            color="#ffffff"
+            transparent
+            opacity={IDLE_STEAM_OPACITY}
+            roughness={0.9}
+            depthWrite={false}
+          />
+        </instancedMesh>
+
+        {/* Dampf-Herz des versteckten Eis — Instanzen ruhen bei Scale 0 */}
+        <instancedMesh
+          ref={heartSteamMeshRef}
+          args={[undefined, undefined, HEART_STEAM_COUNT]}
+        >
+          <sphereGeometry args={[1, 8, 8]} />
+          <meshStandardMaterial
+            color="#ffffff"
+            transparent
+            opacity={HEART_STEAM_OPACITY}
             roughness={0.9}
             depthWrite={false}
           />

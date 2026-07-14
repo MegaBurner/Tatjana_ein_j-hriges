@@ -16,6 +16,16 @@ const ROSE_COUNT = 15;
 const LAVENDER_COUNT = 15;
 const GOLD_COUNT = 15;
 
+// Drift-Tempo: vorher 0.08–0.22 u/s Aufstieg mit nur ±0.03 u/s Seitendrift —
+// zu träge, um überhaupt als Animation aufzufallen. Jetzt deutlich sichtbar,
+// aber immer noch ruhig hinter dem Section-Inhalt treibend.
+const AMBIENT_RISE_SPEED_MIN = 0.22;
+const AMBIENT_RISE_SPEED_VARIANCE = 0.26;
+/** Spannweite der horizontalen Drift (Seed ∈ ±SPAN/2, Szenen-Einheiten/s). */
+const AMBIENT_DRIFT_SPAN = 0.3;
+/** Spannweite der Eigenrotation (Seed ∈ ±SPAN/2, rad/s). */
+const AMBIENT_SPIN_SPAN = 1.6;
+
 interface AmbientSeed {
   x: number;
   y: number;
@@ -32,10 +42,10 @@ function makeAmbientSeeds(count: number): AmbientSeed[] {
     x: (Math.random() - 0.5) * SPREAD_X * 2,
     y: (Math.random() - 0.5) * SPREAD_Y * 2,
     z: Z_FAR + Math.random() * (Z_NEAR - Z_FAR),
-    speed: 0.08 + Math.random() * 0.14,
-    drift: (Math.random() - 0.5) * 0.06,
+    speed: AMBIENT_RISE_SPEED_MIN + Math.random() * AMBIENT_RISE_SPEED_VARIANCE,
+    drift: (Math.random() - 0.5) * AMBIENT_DRIFT_SPAN,
     scale: 0.5 + Math.random() * 0.6,
-    spin: (Math.random() - 0.5) * 0.5,
+    spin: (Math.random() - 0.5) * AMBIENT_SPIN_SPAN,
     phase: Math.random() * Math.PI * 2,
   }));
 }

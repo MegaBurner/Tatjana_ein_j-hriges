@@ -699,15 +699,26 @@ interface PetalSeed {
   phase: number;
 }
 
+// --- Drift-Tempo der frei treibenden Blütenblätter --------------------------
+// Vorher 0.15–0.45 u/s Aufstieg mit nur ±0.06 u/s Seitendrift und ±0.35 rad/s
+// Spin — technisch animiert, aber so träge, dass es als "steht still" gelesen
+// wurde. Jetzt deutlich sichtbare, aber weiterhin ruhige Zimmerbrise.
+const PETAL_RISE_SPEED_MIN = 0.35;
+const PETAL_RISE_SPEED_VARIANCE = 0.45;
+/** Spannweite der horizontalen Drift (Seed ∈ ±SPAN/2, Szenen-Einheiten/s). */
+const PETAL_DRIFT_SPAN = 0.5;
+/** Spannweite der Eigenrotation (Seed ∈ ±SPAN/2, rad/s). */
+const PETAL_SPIN_SPAN = 2.4;
+
 function makePetalSeeds(count: number): PetalSeed[] {
   return Array.from({ length: count }, () => ({
     x: (Math.random() - 0.5) * 7,
     y: (Math.random() - 0.5) * 5.4,
     z: (Math.random() - 0.5) * 2.2,
-    speed: 0.15 + Math.random() * 0.3,
-    drift: (Math.random() - 0.5) * 0.12,
+    speed: PETAL_RISE_SPEED_MIN + Math.random() * PETAL_RISE_SPEED_VARIANCE,
+    drift: (Math.random() - 0.5) * PETAL_DRIFT_SPAN,
     scale: 0.5 + Math.random() * 0.6,
-    spin: (Math.random() - 0.5) * 0.7,
+    spin: (Math.random() - 0.5) * PETAL_SPIN_SPAN,
     phase: Math.random() * Math.PI * 2,
   }));
 }
