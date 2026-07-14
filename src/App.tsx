@@ -1,13 +1,15 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Music, VolumeX } from "lucide-react";
 import { detectWebGL } from "./three/hooks/useWebGL";
-import LetterModal from "./components/LetterModal/LetterModal";
 import DotRail from "./experience/DotRail";
 import "./experience/experience.css";
 import type { Song } from "./experience/types";
 
 const Experience = lazy(() => import("./experience/Experience"));
 const LegacyApp = lazy(() => import("./LegacyApp"));
+// Lazy: zieht framer-motion (~130 kB) erst beim ersten Öffnen des Briefs,
+// statt im kritischen Startpfad der 3D-Experience.
+const LetterModal = lazy(() => import("./components/LetterModal/LetterModal"));
 
 const resolvePath = (path: string) => {
   return import.meta.env.BASE_URL + path.replace(/^\//, "");
@@ -151,7 +153,9 @@ function App() {
 
       <DotRail />
 
-      <LetterModal isOpen={letterOpen} onClose={() => setLetterOpen(false)} />
+      <Suspense fallback={null}>
+        <LetterModal isOpen={letterOpen} onClose={() => setLetterOpen(false)} />
+      </Suspense>
     </div>
   );
 }
