@@ -274,7 +274,9 @@ function Steam({
     const intensity = intensityRef.current;
     const t = state.clock.elapsedTime;
 
-    seeds.forEach((seed, i) => {
+    // Index-Schleife statt forEach: keine pro Frame neu allokierte Closure.
+    for (let i = 0; i < seeds.length; i++) {
+      const seed = seeds[i];
       let y = STEAM_BASE_Y;
       let x = seed.x;
       let bump = 1;
@@ -291,7 +293,7 @@ function Steam({
       dummy.scale.setScalar(seed.scale * bump * intensity);
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
-    });
+    }
     mesh.instanceMatrix.needsUpdate = true;
   });
 
@@ -407,7 +409,9 @@ export const SarmaScene = ({ index }: SectionProps) => {
     const puffMesh = puffMeshRef.current;
     if (puff && puffMesh) {
       const elapsed = t - puff.start;
-      PUFF_SEEDS.forEach((seed, i) => {
+      // Index-Schleife statt forEach: keine pro Frame neu allokierte Closure.
+      for (let i = 0; i < PUFF_SEEDS.length; i++) {
+        const seed = PUFF_SEEDS[i];
         const riseT = THREE.MathUtils.clamp(
           (elapsed - seed.delay) / PUFF_RISE_DURATION,
           0,
@@ -425,7 +429,7 @@ export const SarmaScene = ({ index }: SectionProps) => {
         puffDummy.scale.setScalar(seed.scale * Math.sin(riseT * Math.PI));
         puffDummy.updateMatrix();
         puffMesh.setMatrixAt(i, puffDummy.matrix);
-      });
+      }
       puffMesh.instanceMatrix.needsUpdate = true;
       if (elapsed >= PUFF_TOTAL_DURATION) {
         puffRef.current = null;

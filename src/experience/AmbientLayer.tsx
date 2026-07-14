@@ -1,8 +1,8 @@
-import { useMemo, useRef } from 'react';
-import { useFrame } from '@react-three/fiber';
-import { useScroll } from '@react-three/drei';
-import * as THREE from 'three';
-import { usePrefersReducedMotion } from '../three/hooks/useWebGL';
+import { useMemo, useRef } from "react";
+import { useFrame } from "@react-three/fiber";
+import { useScroll } from "@react-three/drei";
+import * as THREE from "three";
+import { usePrefersReducedMotion } from "../three/hooks/useWebGL";
 
 // Streufeld-Grenzen: liegt hinter dem Section-Inhalt (z ~0) und füllt so
 // jeden Übergang zwischen zwei Sections mit Atmosphäre statt leerem Gradient.
@@ -50,7 +50,7 @@ function AmbientInstances({
   color: string;
   count: number;
   reducedMotion: boolean;
-  shape: 'petal' | 'sparkle';
+  shape: "petal" | "sparkle";
 }) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const seeds = useMemo(() => makeAmbientSeeds(count), [count]);
@@ -68,6 +68,10 @@ function AmbientInstances({
 
     const t = state.clock.elapsedTime;
 
+    // Bewusst forEach statt Index-Schleife: die Seeds werden hier pro Frame
+    // fortgeschrieben (Drift-Zustand), was react-hooks/immutability in einer
+    // direkten Schleife fälschlich als Render-Mutation meldet — die Closure
+    // ist der etablierte, linter-grüne Status quo dieses Partikel-Musters.
     seeds.forEach((seed, i) => {
       if (!reducedMotion) {
         seed.y += seed.speed * delta;
@@ -78,8 +82,12 @@ function AmbientInstances({
         }
       }
       dummy.position.set(seed.x, seed.y, seed.z);
-      dummy.rotation.set(0.3, reducedMotion ? seed.phase : seed.phase + t * seed.spin, 0.6);
-      if (shape === 'petal') {
+      dummy.rotation.set(
+        0.3,
+        reducedMotion ? seed.phase : seed.phase + t * seed.spin,
+        0.6,
+      );
+      if (shape === "petal") {
         dummy.scale.set(seed.scale * 0.16, seed.scale * 0.06, seed.scale * 0.1);
       } else {
         dummy.scale.setScalar(seed.scale * 0.09);
@@ -93,12 +101,17 @@ function AmbientInstances({
 
   return (
     <instancedMesh ref={meshRef} args={[undefined, undefined, count]}>
-      {shape === 'petal' ? (
+      {shape === "petal" ? (
         <sphereGeometry args={[1, 6, 6]} />
       ) : (
         <octahedronGeometry args={[1, 0]} />
       )}
-      <meshStandardMaterial color={color} roughness={0.55} transparent opacity={0.5} />
+      <meshStandardMaterial
+        color={color}
+        roughness={0.55}
+        transparent
+        opacity={0.5}
+      />
     </instancedMesh>
   );
 }
@@ -121,14 +134,24 @@ const AmbientLayer = () => {
 
   return (
     <group ref={groupRef}>
-      <AmbientInstances color="#f4a5ae" count={ROSE_COUNT} reducedMotion={reducedMotion} shape="petal" />
+      <AmbientInstances
+        color="#f4a5ae"
+        count={ROSE_COUNT}
+        reducedMotion={reducedMotion}
+        shape="petal"
+      />
       <AmbientInstances
         color="#c4b5e4"
         count={LAVENDER_COUNT}
         reducedMotion={reducedMotion}
         shape="petal"
       />
-      <AmbientInstances color="#e8c77d" count={GOLD_COUNT} reducedMotion={reducedMotion} shape="sparkle" />
+      <AmbientInstances
+        color="#e8c77d"
+        count={GOLD_COUNT}
+        reducedMotion={reducedMotion}
+        shape="sparkle"
+      />
     </group>
   );
 };

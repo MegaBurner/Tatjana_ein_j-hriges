@@ -642,7 +642,9 @@ function PinTapEffects({
     // Herz-Silhouette immer frontal zur Kamera lesbar bleibt.
     hearts.getWorldQuaternion(worldQuaternion);
     worldQuaternion.invert().multiply(state.camera.quaternion);
-    seeds.forEach((seed, i) => {
+    // Index-Schleife statt forEach: keine pro Frame neu allokierte Closure.
+    for (let i = 0; i < seeds.length; i++) {
+      const seed = seeds[i];
       const heartT = THREE.MathUtils.clamp(
         (elapsed - i * TAP_HEART_STAGGER_S) / TAP_HEART_DURATION_S,
         0,
@@ -662,7 +664,7 @@ function PinTapEffects({
       dummy.scale.setScalar(scale);
       dummy.updateMatrix();
       hearts.setMatrixAt(i, dummy.matrix);
-    });
+    }
     hearts.instanceMatrix.needsUpdate = true;
   });
 

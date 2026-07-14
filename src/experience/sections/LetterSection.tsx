@@ -1,10 +1,11 @@
 import { Suspense, useEffect, useMemo, useRef } from "react";
-import { useFrame, useLoader } from "@react-three/fiber";
+import { useFrame, useLoader, useThree } from "@react-three/fiber";
 import type { ThreeEvent } from "@react-three/fiber";
 import { useScroll } from "@react-three/drei";
 import * as THREE from "three";
 import { sectionProgress, sectionVisibility } from "../useSectionProgress";
 import { usePrefersReducedMotion } from "../../three/hooks/useWebGL";
+import { uploadTexturesStaggered } from "../preloadAssets";
 import { getSoftShadowTexture } from "../softShadow";
 import { getHeartGeometry } from "../heartGeometry";
 import type { SectionProps } from "../types";
@@ -160,7 +161,9 @@ function FloatingHearts({
     if (sectionVisibility(scroll, index) < VISIBILITY_EPSILON) return;
     const t = reducedMotion ? 0 : state.clock.elapsedTime;
 
-    seeds.forEach((seed, i) => {
+    // Index-Schleife statt forEach: keine pro Frame neu allokierte Closure.
+    for (let i = 0; i < seeds.length; i++) {
+      const seed = seeds[i];
       const a = seed.angle + t * seed.speed;
       // Kein freies Taumeln — nur ein leichtes Y-Wobble (±0.4·sin), damit
       // die Herz-Silhouette frontal lesbar bleibt.
@@ -174,7 +177,7 @@ function FloatingHearts({
       dummy.scale.setScalar(seed.scale);
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
-    });
+    }
     mesh.instanceMatrix.needsUpdate = true;
   });
 
@@ -230,7 +233,9 @@ function GoldDust({
     if (sectionVisibility(scroll, index) < VISIBILITY_EPSILON) return;
     const t = reducedMotion ? 0 : state.clock.elapsedTime;
 
-    seeds.forEach((seed, i) => {
+    // Index-Schleife statt forEach: keine pro Frame neu allokierte Closure.
+    for (let i = 0; i < seeds.length; i++) {
+      const seed = seeds[i];
       const angle = seed.phase + t * 0.12;
       const twinkle = reducedMotion
         ? 1
@@ -244,7 +249,7 @@ function GoldDust({
       dummy.scale.setScalar(seed.scale * twinkle);
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
-    });
+    }
     mesh.instanceMatrix.needsUpdate = true;
   });
 
@@ -267,6 +272,7 @@ function useLetterPanelTextures(): [
   THREE.Texture,
   THREE.Texture,
 ] {
+  const gl = useThree((state) => state.gl);
   const rawTexture = useLoader(THREE.TextureLoader, LETTER_TEXTURE_URL);
 
   const panels = useMemo(() => {
@@ -281,6 +287,11 @@ function useLetterPanelTextures(): [
       return clone;
     }) as [THREE.Texture, THREE.Texture, THREE.Texture];
   }, [rawTexture]);
+
+  // GPU-Upload der drei Panel-Klone idle-gestaffelt vorziehen: die Section
+  // startet mit root.visible=false, three würde die Uploads sonst erst im
+  // ersten sichtbaren Frame nachholen — mitten im Scroll-Glide.
+  useEffect(() => uploadTexturesStaggered(gl, panels), [gl, panels]);
 
   useEffect(() => {
     return () => {

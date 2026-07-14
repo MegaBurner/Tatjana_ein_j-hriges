@@ -399,7 +399,9 @@ function KissHearts({
     const active = activeRef.current;
     const t = state.clock.elapsedTime;
 
-    seeds.forEach((seed, i) => {
+    // Index-Schleife statt forEach: keine pro Frame neu allokierte Closure.
+    for (let i = 0; i < seeds.length; i++) {
+      const seed = seeds[i];
       let y = HEART_BASE_Y;
       let x = seed.x;
       let bump = 1;
@@ -418,7 +420,7 @@ function KissHearts({
       dummy.scale.setScalar(seed.scale * bump * active);
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
-    });
+    }
     mesh.instanceMatrix.needsUpdate = true;
   });
 

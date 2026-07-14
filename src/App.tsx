@@ -15,6 +15,8 @@ const resolvePath = (path: string) => {
   return import.meta.env.BASE_URL + path.replace(/^\//, "");
 };
 
+// Cover-Dateien werden in src/experience/preloadAssets.ts (SONG_COVER_FILES)
+// idle-vorgeladen — die Liste dort bei Änderungen synchron halten.
 const songs: Song[] = [
   {
     src: resolvePath("/song.mp3"),

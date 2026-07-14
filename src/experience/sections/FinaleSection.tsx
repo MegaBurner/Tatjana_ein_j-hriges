@@ -207,12 +207,14 @@ function Stamen({ scroll, index }: { scroll: ScrollState; index: number }) {
     const progress = sectionProgress(scroll, index);
     const t = THREE.MathUtils.clamp(progress / 0.35, 0, 1);
 
-    seeds.forEach((seed, i) => {
+    // Index-Schleife statt forEach: keine pro Frame neu allokierte Closure.
+    for (let i = 0; i < seeds.length; i++) {
+      const seed = seeds[i];
       dummy.position.set(seed.x, seed.y, seed.z);
       dummy.scale.setScalar(seed.scale * t);
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
-    });
+    }
     mesh.instanceMatrix.needsUpdate = true;
   });
 
@@ -267,7 +269,9 @@ function OrbitPetals({
     if (sectionVisibility(scroll, index) < VISIBILITY_EPSILON) return;
     const t = reducedMotion ? 0 : state.clock.elapsedTime;
 
-    seeds.forEach((seed, i) => {
+    // Index-Schleife statt forEach: keine pro Frame neu allokierte Closure.
+    for (let i = 0; i < seeds.length; i++) {
+      const seed = seeds[i];
       const angle = seed.phase + t * seed.speed;
       const height = reducedMotion
         ? 0
@@ -281,7 +285,7 @@ function OrbitPetals({
       dummy.scale.set(seed.scale * 1.8, seed.scale, seed.scale * 0.4);
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
-    });
+    }
     mesh.instanceMatrix.needsUpdate = true;
   });
 
@@ -320,7 +324,9 @@ function Sparkles({
     if (sectionVisibility(scroll, index) < VISIBILITY_EPSILON) return;
     const t = reducedMotion ? 0 : state.clock.elapsedTime;
 
-    seeds.forEach((seed, i) => {
+    // Index-Schleife statt forEach: keine pro Frame neu allokierte Closure.
+    for (let i = 0; i < seeds.length; i++) {
+      const seed = seeds[i];
       const angle = seed.phase - t * seed.speed * 1.4;
       const height = reducedMotion
         ? 0
@@ -337,7 +343,7 @@ function Sparkles({
       dummy.scale.setScalar(seed.scale * twinkle);
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
-    });
+    }
     mesh.instanceMatrix.needsUpdate = true;
   });
 
@@ -361,6 +367,18 @@ interface HeartBurst {
   origin: THREE.Vector3;
   startTime: number;
   seeds: readonly HeartSeed[];
+}
+
+/** true, sobald mindestens ein Burst abgelaufen ist — benannte Modul-Funktion
+ *  statt Inline-Closure, damit der Frame-Loop allokationsfrei bleibt. */
+function hasExpiredHeartBurst(
+  bursts: readonly HeartBurst[],
+  now: number,
+): boolean {
+  for (let i = 0; i < bursts.length; i++) {
+    if (now - bursts[i].startTime >= HEART_BURST_DURATION_SECONDS) return true;
+  }
+  return false;
 }
 
 function makeHeartBurst(origin: THREE.Vector3, startTime: number): HeartBurst {
@@ -509,11 +527,9 @@ export const FinaleScene = ({ index }: SectionProps) => {
     const burstMesh = burstMeshRef.current;
     if (burstMesh) {
       const now = state.clock.elapsedTime;
-      if (
-        burstsRef.current.some(
-          (burst) => now - burst.startTime >= HEART_BURST_DURATION_SECONDS,
-        )
-      ) {
+      // hasExpiredHeartBurst statt Inline-`some`-Closure: der Check läuft
+      // jeden Frame, das (Closure-allokierende) filter nur im Ablauf-Fall.
+      if (hasExpiredHeartBurst(burstsRef.current, now)) {
         burstsRef.current = burstsRef.current.filter(
           (burst) => now - burst.startTime < HEART_BURST_DURATION_SECONDS,
         );

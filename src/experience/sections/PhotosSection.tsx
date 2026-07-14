@@ -12,11 +12,14 @@ import * as THREE from "three";
 import { sectionVisibility } from "../useSectionProgress";
 import { getSoftShadowTexture } from "../softShadow";
 import { getBookPage, setBookPage, subscribeBookPage } from "../bookStore";
+import { markSRGB, PHOTO_URLS } from "../preloadAssets";
 import type { SectionProps } from "../types";
 
 /** Unterhalb dieser Sichtbarkeit lohnt sich keine Matrix-Neuberechnung mehr. */
 const VISIBILITY_EPSILON = 0.005;
-/** Ab dieser Annäherung an Section 1 werden die Buch-Fotos erst geladen (Ziel 6). */
+/** Ab dieser Annäherung an Section 1 mountet das Buch erst (Ziel 6) — die
+ *  Foto-Texturen selbst hat der IdlePreloader (Hero) bis dahin im Regelfall
+ *  schon geladen und auf die GPU hochgeladen. */
 const NEAR_THRESHOLD = 0.05;
 
 /**
@@ -109,34 +112,14 @@ const TURN_MIN_LIFT = 0.01;
  */
 const TURN_END_LINGER_FRAMES = 2;
 
-// Web-optimierte Kopien (max. 1600px, ~2,4 MB gesamt statt 12,6 MB Originale)
-const PHOTO_FILES = [
-  "IMG_4891.jpg",
-  "IMG_4909.jpg",
-  "IMG_4913.jpg",
-  "IMG_5006.jpg",
-  "IMG_6280.jpg",
-  "IMG_7321.jpg",
-  "IMG_7411.jpg",
-  "IMG_8099.jpg",
-];
-
-const PHOTO_URLS = PHOTO_FILES.map(
-  (file) => `${import.meta.env.BASE_URL}memories/web/${file}`,
-);
-
 /** Jede Doppelseite zeigt genau EIN Foto links und EIN Foto rechts — jedes
- *  Foto bekommt so seine eigene Seite, keine gepaarten Vorder-/Rückseiten. */
-const SPREAD_COUNT = PHOTO_FILES.length / 2;
+ *  Foto bekommt so seine eigene Seite, keine gepaarten Vorder-/Rückseiten.
+ *  PHOTO_URLS/markSRGB leben in preloadAssets.ts, damit der IdlePreloader
+ *  (Hero-Section) exakt denselben useLoader-Cache-Key vorwärmen kann. */
+const SPREAD_COUNT = PHOTO_URLS.length / 2;
 
 function clampSpread(s: number): number {
   return Math.max(0, Math.min(SPREAD_COUNT - 1, s));
-}
-
-function markSRGB(textures: THREE.Texture[]) {
-  textures.forEach((texture) => {
-    texture.colorSpace = THREE.SRGBColorSpace;
-  });
 }
 
 interface PhotoFit {

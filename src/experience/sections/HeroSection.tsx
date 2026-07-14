@@ -4,6 +4,7 @@ import { useScroll } from "@react-three/drei";
 import * as THREE from "three";
 import { sectionProgress, sectionVisibility } from "../useSectionProgress";
 import { usePrefersReducedMotion } from "../../three/hooks/useWebGL";
+import IdlePreloader from "../IdlePreloader";
 import type { SectionProps } from "../types";
 
 const FLOWER_COUNT = 16;
@@ -225,7 +226,10 @@ function writePetalLayer(
   sway: Float32Array,
   dummy: THREE.Object3D,
 ): void {
-  flowers.forEach((flower, fi) => {
+  // Index-Schleife statt forEach: keine pro Frame neu allokierte Closure
+  // (diese Funktion läuft dreimal pro Frame — einmal je Blütenblatt-Ring).
+  for (let fi = 0; fi < flowers.length; fi++) {
+    const flower = flowers[fi];
     const flowerScale = flower.scale * bloom[fi];
     const swayAngle = sway[fi];
     for (let p = 0; p < layer.petalCount; p++) {
@@ -240,7 +244,7 @@ function writePetalLayer(
       dummy.updateMatrix();
       mesh.setMatrixAt(idx, dummy.matrix);
     }
-  });
+  }
   mesh.instanceMatrix.needsUpdate = true;
 }
 
@@ -255,6 +259,15 @@ interface PetalPuff {
   origin: THREE.Vector3;
   startTime: number;
   seeds: readonly PuffPetalSeed[];
+}
+
+/** true, sobald mindestens ein Puff abgelaufen ist — benannte Modul-Funktion
+ *  statt Inline-Closure, damit der Frame-Loop allokationsfrei bleibt. */
+function hasExpiredPuff(puffs: readonly PetalPuff[], now: number): boolean {
+  for (let i = 0; i < puffs.length; i++) {
+    if (now - puffs[i].startTime >= PUFF_DURATION_SECONDS) return true;
+  }
+  return false;
 }
 
 function makePetalPuff(origin: THREE.Vector3, startTime: number): PetalPuff {
@@ -491,7 +504,9 @@ function PeonyField({
     // Bei reduzierter Bewegung kein kontinuierliches Pointer-Folgen.
     const pointerX = reducedMotion ? null : pointerXRef.current;
 
-    flowers.forEach((flower, fi) => {
+    // Index-Schleife statt forEach: keine pro Frame neu allokierte Closure.
+    for (let fi = 0; fi < flowers.length; fi++) {
+      const flower = flowers[fi];
       const bloomTarget = mountElapsed > flower.delay ? 1 : 0;
       bloom[fi] = THREE.MathUtils.damp(bloom[fi], bloomTarget, 3.2, delta);
       const swayAmount = reducedMotion ? 0.008 : 0.04 + swayIntensity * 0.14;
@@ -540,7 +555,7 @@ function PeonyField({
       dummy.scale.setScalar(flowerScale);
       dummy.updateMatrix();
       centerMesh.setMatrixAt(fi, dummy.matrix);
-    });
+    }
 
     writePetalLayer(
       outerMesh,
@@ -577,11 +592,9 @@ function PeonyField({
     const puffMesh = puffMeshRef.current;
     if (puffMesh) {
       const now = state.clock.elapsedTime;
-      if (
-        puffsRef.current.some(
-          (puff) => now - puff.startTime >= PUFF_DURATION_SECONDS,
-        )
-      ) {
+      // hasExpiredPuff statt Inline-`some`-Closure: der Check läuft jeden
+      // Frame, das (Closure-allokierende) filter nur im seltenen Ablauf-Fall.
+      if (hasExpiredPuff(puffsRef.current, now)) {
         puffsRef.current = puffsRef.current.filter(
           (puff) => now - puff.startTime < PUFF_DURATION_SECONDS,
         );
@@ -722,6 +735,10 @@ function FloatingPetals({
     if (sectionVisibility(scroll, index) < VISIBILITY_EPSILON) return;
     const t = state.clock.elapsedTime;
 
+    // Bewusst forEach statt Index-Schleife: die Seeds werden hier pro Frame
+    // fortgeschrieben (Drift-Zustand), was react-hooks/immutability in einer
+    // direkten Schleife fälschlich als Render-Mutation meldet — die Closure
+    // ist der etablierte, linter-grüne Status quo dieses Partikel-Musters.
     seeds.forEach((seed, i) => {
       if (!reducedMotion) {
         seed.y += seed.speed * delta;
@@ -778,27 +795,34 @@ export const HeroScene = ({ index }: SectionProps) => {
   });
 
   return (
-    <group ref={rootRef}>
-      <PeonyField flowers={flowers} index={index} />
-      <FloatingPetals
-        color="#f4a5ae"
-        count={14}
-        reducedMotion={reducedMotion}
-        index={index}
-      />
-      <FloatingPetals
-        color="#c4b5e4"
-        count={13}
-        reducedMotion={reducedMotion}
-        index={index}
-      />
-      <FloatingPetals
-        color="#e8c77d"
-        count={13}
-        reducedMotion={reducedMotion}
-        index={index}
-      />
-    </group>
+    <>
+      <group ref={rootRef}>
+        <PeonyField flowers={flowers} index={index} />
+        <FloatingPetals
+          color="#f4a5ae"
+          count={14}
+          reducedMotion={reducedMotion}
+          index={index}
+        />
+        <FloatingPetals
+          color="#c4b5e4"
+          count={13}
+          reducedMotion={reducedMotion}
+          index={index}
+        />
+        <FloatingPetals
+          color="#e8c77d"
+          count={13}
+          reducedMotion={reducedMotion}
+          index={index}
+        />
+      </group>
+      {/* Idle-Preloading aller späteren Section-Assets — hier gemountet,
+          weil die Hero-Section als erste steht (Preload startet erst nach
+          ihrem First Paint) und Experience.tsx nicht angefasst werden darf.
+          Rendert keine Szenen-Objekte. */}
+      <IdlePreloader />
+    </>
   );
 };
 
