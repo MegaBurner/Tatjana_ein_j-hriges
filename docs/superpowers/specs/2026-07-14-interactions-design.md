@@ -48,3 +48,19 @@ Buch-Blättern, Brief-Modal) bleiben unverändert erhalten.
 Umsetzung erst NACH dem Fix des Titel-Band-Layout-Drifts (separater Fund vom
 2026-07-14, siehe Commit-Historie), damit Trefferflächen und Layout-Feinjustierung
 nicht gegen ein falsches Raster gebaut werden.
+
+## Nachtrag (2026-07-15, freigegeben): Standard-Idle-Animationen
+
+Jede Section lebt auch OHNE Interaktion dezent für sich. Bestand: Hero-Sway,
+Brief-Herzen/Goldstaub, Globus-Idle-Rotation, Finale-Partikel. Ergänzt werden:
+
+| Section  | Standard-Animation |
+|----------|--------------------|
+| Fotobuch | Buch schwebt/atmet sanft (kleine Y-Sinus-Bewegung + minimales Kippen) |
+| Vinyl    | Platte dreht auch ohne Musik langsam weiter (mit Musik wie bisher schneller) |
+| Pinguine | dezentes Idle-Schunkeln der beiden + gelegentliches Zueinander-Neigen |
+| Sarma    | feiner Dauer-Dampf steigt vom Teller auf (Klick-Wölkchen bleiben als Extra) |
+| Brief    | Trifold atmet minimal (sehr kleiner Scale/Tilt-Puls) |
+
+Regeln wie oben: nur sichtbare Sections animieren (Gating), allokationsfrei
+(keine Closures/Objekte pro Frame), prefers-reduced-motion → statisch.
