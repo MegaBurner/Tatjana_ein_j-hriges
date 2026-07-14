@@ -33,6 +33,9 @@
 .exp-section:nth-child(8) {
   top: 700vh;
 }
+.exp-section:nth-child(9) {
+  top: 800vh;
+}
 
 .exp-content {
   display: flex;

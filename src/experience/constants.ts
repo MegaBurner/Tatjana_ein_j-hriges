@@ -1,5 +1,5 @@
 /** Anzahl der Scroll-Seiten (1 pro Section). */
-export const PAGES = 8;
+export const PAGES = 9;
 
 export const SECTION_IDS = [
   "hero",
@@ -9,6 +9,7 @@ export const SECTION_IDS = [
   "penguins",
   "sarma",
   "globe",
+  "rayman",
   "finale",
 ] as const;
 

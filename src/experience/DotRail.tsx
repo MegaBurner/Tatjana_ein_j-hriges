@@ -1,18 +1,23 @@
 import { useEffect, useState } from "react";
 import { requestScrollTarget, subscribeScroll } from "./scrollBus";
 import type { ScrollSnapshot } from "./scrollBus";
+import { SECTION_IDS } from "./constants";
+import type { SectionId } from "./constants";
 
-const CHAPTER_LABELS = [
-  "Start",
-  "Fotos",
-  "Songs",
-  "Brief",
-  "Pinguine",
-  "Sarma",
-  "Welt",
-  "Finale",
-] as const;
-const CHAPTER_COUNT = CHAPTER_LABELS.length;
+// Labels bewusst als Record über SectionId: kommt eine Section in
+// constants.ts dazu, erzwingt der Compiler hier ein passendes Label.
+const CHAPTER_LABELS: Record<SectionId, string> = {
+  hero: "Start",
+  photos: "Fotos",
+  vinyl: "Songs",
+  letter: "Brief",
+  penguins: "Pinguine",
+  sarma: "Sarma",
+  globe: "Welt",
+  rayman: "Player 2",
+  finale: "Finale",
+};
+const CHAPTER_COUNT = SECTION_IDS.length;
 
 /**
  * Vertikale Kapitel-Navigation, fixiert rechts mittig — außerhalb des
@@ -41,12 +46,13 @@ function DotRail() {
 
   return (
     <nav className="exp-dotrail" aria-label="Kapitel-Navigation">
-      {CHAPTER_LABELS.map((label, i) => {
+      {SECTION_IDS.map((id, i) => {
+        const label = CHAPTER_LABELS[id];
         const isActive = i === snapshot.sectionIndex;
         const title = `${label} — Kapitel ${i + 1} von ${CHAPTER_COUNT}`;
         return (
           <button
-            key={label}
+            key={id}
             type="button"
             className={isActive ? "exp-dot active" : "exp-dot"}
             aria-label={title}

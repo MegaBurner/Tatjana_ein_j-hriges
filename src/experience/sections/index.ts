@@ -7,6 +7,7 @@ import { LetterScene, LetterHtml } from "./LetterSection";
 import { PenguinsScene, PenguinsHtml } from "./PenguinsSection";
 import { SarmaScene, SarmaHtml } from "./SarmaSection";
 import { GlobeScene, GlobeHtml } from "./GlobeSection";
+import { RaymanScene, RaymanHtml } from "./RaymanSection";
 import { FinaleScene, FinaleHtml } from "./FinaleSection";
 
 export interface SectionDef {
@@ -25,5 +26,6 @@ export const SECTIONS: SectionDef[] = [
   { id: "penguins", Scene: PenguinsScene, Html: PenguinsHtml },
   { id: "sarma", Scene: SarmaScene, Html: SarmaHtml },
   { id: "globe", Scene: GlobeScene, Html: GlobeHtml },
+  { id: "rayman", Scene: RaymanScene, Html: RaymanHtml },
   { id: "finale", Scene: FinaleScene, Html: FinaleHtml },
 ];
