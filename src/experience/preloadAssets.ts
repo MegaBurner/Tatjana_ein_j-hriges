@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { useLoader } from "@react-three/fiber";
+import { useGLTF } from "@react-three/drei";
 
 /**
  * Idle-Preloading gegen Nachlade-Ruckler beim ersten Durchscrollen:
@@ -123,8 +124,27 @@ export function preloadSongCovers(): void {
 // Mount (LetterSection ist nicht sichtbarkeits-gegated) — hier ist nichts
 // vorzuladen. Der GPU-Upload der drei Panel-Klone wird direkt in
 // LetterSection via uploadTexturesStaggered vorgezogen.
-// Sections 4-7 (Pinguine, Sarma, Globus, Finale): rein prozedurale
+// Sections 4-6 (Pinguine, Sarma, Globus) und Finale: rein prozedurale
 // Canvas-/Geometrie-Inhalte, keine externen Assets.
+
+// Section 7 („Player 2") — GLB-Figuren (Held + Hasen, zusammen ~1,8 MB).
+// Die URLs leben hier statt in RaymanSection (Muster wie PHOTO_URLS), damit
+// Preloading und Section garantiert denselben useGLTF-Cache-Key verwenden.
+// Quellen/Lizenzen der Modelle: CREDITS.md im Repo-Root.
+const modelUrl = (file: string) => `${import.meta.env.BASE_URL}models/${file}`;
+
+export const RAYMAN_HERO_MODEL_URL = modelUrl("hero.glb");
+export const RABBID_MODEL_URL = modelUrl("rabbid.glb");
+export const RABBID_FALLEN_MODEL_URL = modelUrl("rabbid-fallen.glb");
+
+/** Startet Netz-Load + Parse aller „Player 2"-GLBs in den useGLTF-Cache.
+ *  RaymanSection ruft das in einem Idle-Fenster auf und mountet die Figuren
+ *  erst ein Fenster später — der Hero-First-Paint bleibt unberührt. */
+export function preloadRaymanModels(): void {
+  useGLTF.preload(RAYMAN_HERO_MODEL_URL);
+  useGLTF.preload(RABBID_MODEL_URL);
+  useGLTF.preload(RABBID_FALLEN_MODEL_URL);
+}
 
 /**
  * Wärmt den lazy LetterModal-Chunk (inkl. framer-motion-Vendor-Chunk,

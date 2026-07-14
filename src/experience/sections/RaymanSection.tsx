@@ -1,19 +1,30 @@
-import { useRef } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { useFrame } from "@react-three/fiber";
 import type { ThreeEvent } from "@react-three/fiber";
-import { useScroll } from "@react-three/drei";
+import { useAnimations, useGLTF, useScroll } from "@react-three/drei";
 import * as THREE from "three";
+import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { sectionVisibility } from "../useSectionProgress";
 import { usePrefersReducedMotion } from "../../three/hooks/useWebGL";
 import { getSoftShadowTexture } from "../softShadow";
+import {
+  preloadRaymanModels,
+  RABBID_FALLEN_MODEL_URL,
+  RABBID_MODEL_URL,
+  RAYMAN_HERO_MODEL_URL,
+  scheduleIdle,
+} from "../preloadAssets";
 import type { SectionProps } from "../types";
 
-// „Player 2" — Fan-Hommage aus reinen Primitiven (keine fremden Assets):
-// ein Rayman-artiger Held, dessen Hände/Füße/Kopf OHNE Arme und Beine frei
-// neben dem Körper schweben (das körperlose Schweben ist der Witz der Figur),
-// plus drei Rabbid-artige Hasen mit verrücktem Blick. Einer liegt umgekippt
-// auf dem Rücken und strampelt gelegentlich.
+// „Player 2" — Fan-Hommage mit richtigen (CC0-lizenzierten) GLB-Figuren:
+// ein Cartoon-Held im Spielhelden-Look plus drei verrückte Hasen, davon
+// einer umgekippt auf dem Rücken, der gelegentlich strampelt. Alle drei
+// Modelle stammen von Quaternius (Public Domain / CC0) — Details und
+// Quell-URLs in CREDITS.md im Repo-Root. Die Interaktions- und Idle-Logik
+// (Schweben, Zappeln, Helikopter-Lift, „BWAAAH!") ist aus der früheren
+// Primitiven-Fassung übernommen und wirkt auf die Modell-Root-Groups; die
+// GLBs bringen zusätzlich eigene Idle-/Run-Clips mit (Skelett-Animation).
 
 // --- Klick/Tipp-Interaktion (Muster wie Penguins/Globe) --------------------
 /** Klick nur werten, wenn sich der Pointer < 8px bewegt hat (Tap vs. Drag/Scroll). */
@@ -21,23 +32,28 @@ const TAP_MAX_DELTA_PX = 8;
 /** Ab dieser Sichtbarkeit reagiert die Szene auf Klick/Tipp. */
 const INTERACTION_VISIBILITY_THRESHOLD = 0.3;
 
+// --- Modell-Maße -------------------------------------------------------------
+// Rest-Pose-Höhen der GLBs (offline aus den Vertex-Daten vermessen). Die
+// Skalen normieren die Figuren auf die Größen der früheren Primitiven-
+// Komposition, damit Positionen/Schatten/Sprites unverändert passen.
+/** Held (hero.glb): 2,82 Einheiten hoch → ~1,5 lokale Einheiten. */
+const HERO_MODEL_SCALE = 1.5 / 2.82;
+/** Stehender Hase (rabbid.glb): 4,0 Einheiten hoch (inkl. Ohren) → ~1,2. */
+const RABBID_MODEL_SCALE = 1.2 / 4.0;
+/** Umgekippter Hase (rabbid-fallen.glb): 3,44 Einheiten hoch → ~1,2. */
+const FALLEN_MODEL_SCALE = 1.2 / 3.44;
+
 // --- Held: Idle ------------------------------------------------------------
 /** Sinus-Schweben des Helden: ±Amplitude über eine Periode von ~3s. */
 const HERO_HOVER_AMPLITUDE = 0.05;
 const HERO_HOVER_OMEGA = (Math.PI * 2) / 3;
-/** Hände kreisen dezent (kleine Kreise um ihre Ruheposition neben dem Rumpf). */
-const HAND_BASE_X = 0.52;
-const HAND_BASE_Y = 0.62;
-const HAND_ORBIT_RADIUS = 0.06;
-const HAND_ORBIT_SPEED = 1.6;
-/** Haarbüschel-Wippen im Idle. */
-const HAIR_BOB_SPEED = 2.4;
-const HAIR_BOB_ANGLE = 0.12;
 
-// --- Held: Helikopter-Haare (Klick) — bewusst kräftig -----------------------
+// --- Held: Helikopter-Lift (Klick) — bewusst kräftig -------------------------
 const HELI_DURATION_S = 1.6;
-/** Rotor-Drehzahl der Haarbüschel. */
-const HELI_SPIN_SPEED = 12;
+/** Das Modell hat keine separaten Haarbüschel als Rotor — stattdessen hebt
+ *  der ganze Held mit Dreh-Impuls ab: easeOutCubic bis exakt 2 Umdrehungen,
+ *  landet also ohne Sprung wieder in Ausgangsorientierung. */
+const HELI_TOTAL_SPIN_RAD = Math.PI * 4;
 /** Deutlicher Abhebe-Hub (Sinus-Bogen über die Gesamtdauer). */
 const HELI_LIFT = 0.5;
 /** Der Blob-Schatten schrumpft beim Abheben leicht mit. */
@@ -46,19 +62,17 @@ const HELI_SHADOW_SHRINK = 0.3;
 // --- Rabbid: Idle ------------------------------------------------------------
 /** Grund-Zappeln (Körper-Ruckeln) — Frequenz kommt versetzt pro Hase. */
 const RABBID_JIGGLE_ANGLE = 0.05;
-const RABBID_EAR_IDLE_ANGLE = 0.08;
-/** Grund-Neigung der Ohren nach außen. */
-const RABBID_EAR_TILT = 0.12;
 /** Gelegentliche Strampel-Bursts des Umgekippten: langsame Sinus-Hüllkurve
- *  hoch potenziert ⇒ kurze Ausbrüche mit langen Pausen dazwischen. */
+ *  hoch potenziert ⇒ kurze Ausbrüche mit langen Pausen dazwischen. Die
+ *  Hüllkurve blendet den eingebetteten Run-Clip ein (Beine strampeln). */
 const KICK_ENVELOPE_OMEGA = 0.9;
 const KICK_ENVELOPE_POWER = 8;
-const KICK_FOOT_SPEED = 22;
-const KICK_FOOT_ANGLE = 0.6;
+const KICK_SHAKE_SPEED = 18;
 const KICK_BODY_SHAKE = 0.05;
-/** Liege-Höhe des umgekippten Körpers (Kapsel-Radius über dem Boden). */
-const FALLEN_BODY_Y = 0.3;
-/** Rücklage des Umgekippten (fast flach, Ohren zur Kamera gekippt). */
+/** Liege-Höhe des Umgekippten: hebt die tiefste Vertex-Position nach der
+ *  Rücklage-Rotation exakt auf den Boden (offline vermessen). */
+const FALLEN_BODY_Y = 0.18;
+/** Rücklage des Umgekippten (fast flach, Bauch zur Kamera gekippt). */
 const FALLEN_TILT_X = -1.25;
 
 // --- Rabbid: „BWAAAH" (Klick) — bewusst kräftig ------------------------------
@@ -67,12 +81,9 @@ const BWAAAH_LIFETIME_S = 1.5;
 /** Kraftvoller Sprung zu Beginn. */
 const BWAAAH_JUMP_HEIGHT = 0.4;
 const BWAAAH_JUMP_DURATION_S = 0.55;
-/** Starkes Ohren-Flattern während der Schrei-Hüllkurve. */
-const BWAAAH_EAR_FLAP_SPEED = 26;
-const BWAAAH_EAR_FLAP_ANGLE = 0.45;
-/** Mund reißt auf (Y-Scale-Spitze). */
-const BWAAAH_MOUTH_SCALE_Y = 3.4;
-const BWAAAH_MOUTH_SCALE_X = 1.5;
+/** Starkes Körper-Schütteln während der Schrei-Hüllkurve. */
+const BWAAAH_SHAKE_SPEED = 26;
+const BWAAAH_SHAKE_ANGLE = 0.12;
 /** Pop-in (easeOutBack) und Fade-out des Text-Sprites. */
 const BWAAAH_POP_S = 0.22;
 const BWAAAH_FADE_S = 0.35;
@@ -127,20 +138,11 @@ function easeOutBack(t: number): number {
   return 1 + c3 * (x - 1) ** 3 + c1 * (x - 1) ** 2;
 }
 
-// --- Farben ------------------------------------------------------------------
-const HERO_TORSO = "#7b4fc0";
-const HERO_TORSO_PATCH = "#f4efe6";
-const HERO_SKIN = "#f7c59f";
-const HERO_NOSE = "#eab389";
-const HERO_HAIR = "#f6c445";
-const HERO_GLOVE = "#f8f6f2";
-const HERO_SHOE = "#e8973a";
-const HERO_MOUTH = "#7a3327";
-const RABBID_FUR = "#f2efe9";
-const RABBID_BELLY = "#e8e2d6";
-const RABBID_EAR_INNER = "#f0a8b8";
-const RABBID_MOUTH = "#4a1f2b";
-const PUPIL = "#231733";
+/** easeOutCubic für den Dreh-Impuls des Helikopter-Lifts. */
+function easeOutCubic(t: number): number {
+  const x = THREE.MathUtils.clamp(t, 0, 1);
+  return 1 - (1 - x) ** 3;
+}
 
 /** Von der Scene gepflegte Sichtbarkeits-Flags für alle Sub-Komponenten. */
 interface GateRefs {
@@ -151,23 +153,77 @@ interface GateRefs {
 }
 
 // ============================================================================
-// Held im Rayman-Stil
+// GLB-Helfer
 // ============================================================================
 
-function HeroEye({ x }: { x: number }) {
-  return (
-    <group position={[x, 0.06, 0.16]}>
-      <mesh scale={[1, 1.2, 0.6]}>
-        <sphereGeometry args={[0.05, 10, 8]} />
-        <meshStandardMaterial color="#ffffff" roughness={0.3} />
-      </mesh>
-      <mesh position={[Math.sign(x) * 0.008, 0, 0.028]}>
-        <sphereGeometry args={[0.02, 8, 6]} />
-        <meshStandardMaterial color={PUPIL} />
-      </mesh>
-    </group>
-  );
+/**
+ * Lädt ein GLB und liefert einen unabhängigen Klon (SkeletonUtils.clone —
+ * nötig, weil useGLTF eine gecachte Szene liefert und die stehenden Hasen
+ * dasselbe Modell zweimal verwenden). Skinned Meshes bekommen
+ * `frustumCulled = false`: ihre statischen Geometrie-Bounds stimmen nach
+ * Skelett-Animation nicht mehr, three würde sie sonst fälschlich cullen.
+ */
+function useFigureModel(url: string): {
+  clone: THREE.Object3D;
+  animations: THREE.AnimationClip[];
+} {
+  const { scene, animations } = useGLTF(url);
+  const clone = useMemo(() => {
+    const cloned = cloneSkeleton(scene);
+    cloned.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) child.frustumCulled = false;
+    });
+    return cloned;
+  }, [scene]);
+  return { clone, animations };
 }
+
+/**
+ * Sucht eine Action über den Clip-Kurznamen — die Quaternius-Exporte
+ * prefixen unterschiedlich tief ("Idle", "CharacterArmature|Idle",
+ * "CharacterArmature|...|Idle").
+ */
+function findAction(
+  actions: Record<string, THREE.AnimationAction | null>,
+  clipName: string,
+): THREE.AnimationAction | null {
+  for (const name of Object.keys(actions)) {
+    if (name === clipName || name.endsWith(`|${clipName}`)) {
+      return actions[name];
+    }
+  }
+  return null;
+}
+
+/**
+ * Spielt den eingebetteten Idle-Clip in Endlosschleife, versetzt um `phase`
+ * Sekunden (die Hasen zappeln bewusst nicht synchron). Liefert die Action
+ * als Ref für den useFrame-Loop: dort wird sie bei unsichtbarer Section und
+ * bei reduced motion pausiert — pausiert heißt eingefroren auf einer
+ * natürlichen Idle-Pose statt der T-Pose des unanimierten Skeletts.
+ */
+function useIdleAction(
+  actions: Record<string, THREE.AnimationAction | null>,
+  phase: number,
+): RefObject<THREE.AnimationAction | null> {
+  const idleRef = useRef<THREE.AnimationAction | null>(null);
+  useEffect(() => {
+    const idle = findAction(actions, "Idle");
+    idleRef.current = idle;
+    if (!idle) return undefined;
+    idle.reset().play();
+    idle.time = phase % idle.getClip().duration;
+    return () => {
+      idle.stop();
+      idleRef.current = null;
+    };
+  }, [actions, phase]);
+  return idleRef;
+}
+
+// ============================================================================
+// Held im Spielhelden-Stil
+// ============================================================================
 
 function RaymanHero({
   position,
@@ -181,10 +237,10 @@ function RaymanHero({
   reducedMotion: boolean;
 }) {
   const shadowTexture = getSoftShadowTexture();
+  const { clone, animations } = useFigureModel(RAYMAN_HERO_MODEL_URL);
+  const { actions } = useAnimations(animations, clone);
+  const idleActionRef = useIdleAction(actions, 0);
   const floatRef = useRef<THREE.Group>(null);
-  const hairRef = useRef<THREE.Group>(null);
-  const handLeftRef = useRef<THREE.Group>(null);
-  const handRightRef = useRef<THREE.Group>(null);
   const shadowRef = useRef<THREE.Mesh>(null);
   /** Tap-Anfrage aus dem Event-Handler — wird im useFrame-Loop konsumiert. */
   const heliRequestedRef = useRef(false);
@@ -209,12 +265,15 @@ function RaymanHero({
   };
 
   useFrame((state) => {
-    if (!gates.visibleRef.current) return;
+    const isVisible = gates.visibleRef.current;
+    // Skelett-Idle friert ein, wenn nichts zu sehen ist oder reduced motion
+    // aktiv ist — VOR dem Sichtbarkeits-Early-Return, damit der Übergang
+    // sichtbar→unsichtbar die Action zuverlässig pausiert.
+    const idle = idleActionRef.current;
+    if (idle) idle.paused = reducedMotion || !isVisible;
+    if (!isVisible) return;
     const float = floatRef.current;
-    const hair = hairRef.current;
-    const handL = handLeftRef.current;
-    const handR = handRightRef.current;
-    if (!float || !hair || !handL || !handR) return;
+    if (!float) return;
     const t = state.clock.elapsedTime;
 
     // Tap konsumieren — bei reduced motion bleibt die Figur statisch.
@@ -224,38 +283,26 @@ function RaymanHero({
     }
     if (reducedMotion) return;
 
-    // Helikopter-Flug: Haare als Rotor, deutlicher Sinus-Hub übers Ganze.
+    // Helikopter-Lift: ganzer Held hebt mit Dreh-Impuls ab (Sinus-Hub,
+    // Drehung easeOutCubic bis exakt 2 Umdrehungen — landet nahtlos).
     let lift = 0;
-    let isFlying = false;
     const heliStart = heliStartRef.current;
     if (heliStart !== null) {
       const elapsed = t - heliStart;
       if (elapsed >= HELI_DURATION_S) {
         heliStartRef.current = null;
+        float.rotation.y = 0;
       } else {
-        isFlying = true;
-        lift = Math.sin((elapsed / HELI_DURATION_S) * Math.PI) * HELI_LIFT;
-        hair.rotation.y = elapsed * HELI_SPIN_SPEED;
-        hair.rotation.z = 0;
+        const progress = elapsed / HELI_DURATION_S;
+        lift = Math.sin(progress * Math.PI) * HELI_LIFT;
+        float.rotation.y = easeOutCubic(progress) * HELI_TOTAL_SPIN_RAD;
       }
     }
 
-    // Idle: sinusförmiges Schweben + wippende Haarbüschel.
+    // Idle: sinusförmiges Schweben der Root-Group; das Körper-Wippen kommt
+    // aus dem eingebetteten Idle-Clip des Modells.
     float.position.y =
       Math.sin(t * HERO_HOVER_OMEGA) * HERO_HOVER_AMPLITUDE + lift;
-    if (!isFlying) {
-      hair.rotation.y = 0;
-      hair.rotation.z = Math.sin(t * HAIR_BOB_SPEED) * HAIR_BOB_ANGLE;
-    }
-
-    // Hände: kleine gegenphasige Kreise um ihre Ruheposition neben dem Rumpf.
-    const angle = t * HAND_ORBIT_SPEED;
-    handL.position.x = -HAND_BASE_X + Math.cos(angle) * HAND_ORBIT_RADIUS;
-    handL.position.y = HAND_BASE_Y + Math.sin(angle) * HAND_ORBIT_RADIUS;
-    handR.position.x =
-      HAND_BASE_X + Math.cos(angle + Math.PI) * HAND_ORBIT_RADIUS;
-    handR.position.y =
-      HAND_BASE_Y + Math.sin(angle + Math.PI) * HAND_ORBIT_RADIUS;
 
     // Schatten schrumpft beim Abheben leicht.
     const shadow = shadowRef.current;
@@ -288,89 +335,8 @@ function RaymanHero({
         onPointerOver={handlePointerOver}
         onPointerOut={handlePointerOut}
       >
-        {/* Schuhe — schweben OHNE Beine unter dem Rumpf */}
-        <mesh
-          position={[-0.22, 0.14, 0.1]}
-          rotation={[0, 0.3, 0]}
-          scale={[0.3, 0.17, 0.44]}
-        >
-          <sphereGeometry args={[0.5, 14, 10]} />
-          <meshStandardMaterial color={HERO_SHOE} roughness={0.5} />
-        </mesh>
-        <mesh
-          position={[0.22, 0.14, 0.1]}
-          rotation={[0, -0.3, 0]}
-          scale={[0.3, 0.17, 0.44]}
-        >
-          <sphereGeometry args={[0.5, 14, 10]} />
-          <meshStandardMaterial color={HERO_SHOE} roughness={0.5} />
-        </mesh>
-
-        {/* Rumpf — lila Ellipsoid mit hellem Bauchfleck */}
-        <mesh position={[0, 0.62, 0]} scale={[0.52, 0.6, 0.44]}>
-          <sphereGeometry args={[0.5, 16, 12]} />
-          <meshStandardMaterial color={HERO_TORSO} roughness={0.5} />
-        </mesh>
-        <mesh position={[0, 0.58, 0.16]} scale={[0.3, 0.4, 0.2]}>
-          <sphereGeometry args={[0.5, 14, 10]} />
-          <meshStandardMaterial color={HERO_TORSO_PATCH} roughness={0.6} />
-        </mesh>
-
-        {/* Handschuh-Kugeln — schweben OHNE Arme neben dem Rumpf */}
-        <group ref={handLeftRef} position={[-HAND_BASE_X, HAND_BASE_Y, 0.1]}>
-          <mesh>
-            <sphereGeometry args={[0.11, 12, 10]} />
-            <meshStandardMaterial color={HERO_GLOVE} roughness={0.45} />
-          </mesh>
-        </group>
-        <group ref={handRightRef} position={[HAND_BASE_X, HAND_BASE_Y, 0.1]}>
-          <mesh>
-            <sphereGeometry args={[0.11, 12, 10]} />
-            <meshStandardMaterial color={HERO_GLOVE} roughness={0.45} />
-          </mesh>
-        </group>
-
-        {/* Kopf — schwebt frei ÜBER dem Rumpf, die Lücke ist Absicht */}
-        <group position={[0, 1.22, 0]}>
-          <mesh scale={[0.42, 0.4, 0.4]}>
-            <sphereGeometry args={[0.5, 16, 12]} />
-            <meshStandardMaterial color={HERO_SKIN} roughness={0.55} />
-          </mesh>
-
-          <HeroEye x={-0.085} />
-          <HeroEye x={0.085} />
-
-          {/* Nase */}
-          <mesh position={[0, -0.01, 0.19]}>
-            <sphereGeometry args={[0.055, 10, 8]} />
-            <meshStandardMaterial color={HERO_NOSE} roughness={0.55} />
-          </mesh>
-
-          {/* Großes Grinsen — Torus-Segment, unten am Kopf zentriert */}
-          <mesh position={[0, -0.06, 0.165]} rotation={[0, 0, Math.PI * 1.075]}>
-            <torusGeometry args={[0.11, 0.024, 8, 20, Math.PI * 0.85]} />
-            <meshStandardMaterial color={HERO_MOUTH} roughness={0.5} />
-          </mesh>
-
-          {/* Zwei gelbe Haarbüschel — beim Klick der Helikopter-Rotor */}
-          <group ref={hairRef} position={[0, 0.17, 0]}>
-            <mesh
-              position={[-0.11, 0.05, 0]}
-              rotation={[0, 0, 0.55]}
-              scale={[0.3, 0.1, 0.14]}
-            >
-              <sphereGeometry args={[0.5, 12, 8]} />
-              <meshStandardMaterial color={HERO_HAIR} roughness={0.5} />
-            </mesh>
-            <mesh
-              position={[0.11, 0.05, 0]}
-              rotation={[0, 0, -0.55]}
-              scale={[0.3, 0.1, 0.14]}
-            >
-              <sphereGeometry args={[0.5, 12, 8]} />
-              <meshStandardMaterial color={HERO_HAIR} roughness={0.5} />
-            </mesh>
-          </group>
+        <group scale={HERO_MODEL_SCALE}>
+          <primitive object={clone} />
         </group>
       </group>
     </group>
@@ -380,54 +346,6 @@ function RaymanHero({
 // ============================================================================
 // Rabbid-artiger Hase
 // ============================================================================
-
-/** Riesiges ovales Auge mit kleiner, schielend versetzter Pupille. */
-function RabbidEye({
-  x,
-  pupilOffset,
-}: {
-  x: number;
-  pupilOffset: [number, number];
-}) {
-  return (
-    <group position={[x, 0.62, 0.235]}>
-      <mesh scale={[1, 1.35, 0.6]}>
-        <sphereGeometry args={[0.08, 12, 10]} />
-        <meshStandardMaterial color="#ffffff" roughness={0.3} />
-      </mesh>
-      <mesh position={[pupilOffset[0], pupilOffset[1], 0.055]}>
-        <sphereGeometry args={[0.022, 8, 6]} />
-        <meshStandardMaterial color={PUPIL} />
-      </mesh>
-    </group>
-  );
-}
-
-/** Ohr aus zwei Kapsel-Segmenten (leicht geknickt = „gebogen") mit rosa
- *  Innenseite. Der Gruppen-Ursprung liegt am Ohransatz — Wackeln/Flattern
- *  rotiert das ganze Ohr um diesen Punkt. */
-function RabbidEar({ mirror }: { mirror: 1 | -1 }) {
-  return (
-    <>
-      <mesh position={[0, 0.16, 0]}>
-        <capsuleGeometry args={[0.05, 0.28, 4, 10]} />
-        <meshStandardMaterial color={RABBID_FUR} roughness={0.55} />
-      </mesh>
-      <mesh
-        position={[mirror * 0.045, 0.42, 0]}
-        rotation={[0, 0, mirror * -0.35]}
-      >
-        <capsuleGeometry args={[0.045, 0.2, 4, 10]} />
-        <meshStandardMaterial color={RABBID_FUR} roughness={0.55} />
-      </mesh>
-      {/* Rosa Innenseite des unteren Segments */}
-      <mesh position={[0, 0.18, 0.042]} scale={[0.055, 0.22, 0.02]}>
-        <sphereGeometry args={[1, 10, 8]} />
-        <meshStandardMaterial color={RABBID_EAR_INNER} roughness={0.6} />
-      </mesh>
-    </>
-  );
-}
 
 function Rabbid({
   position,
@@ -450,12 +368,15 @@ function Rabbid({
   reducedMotion: boolean;
 }) {
   const shadowTexture = getSoftShadowTexture();
+  // Der Umgekippte ist ein eigenes Modell (grummeliger Hase mit Möhre) —
+  // liegt er erst mal auf dem Rücken, passt der Gesichtsausdruck perfekt.
+  const modelUrl = fallen ? RABBID_FALLEN_MODEL_URL : RABBID_MODEL_URL;
+  const { clone, animations } = useFigureModel(modelUrl);
+  const { actions } = useAnimations(animations, clone);
+  const idleActionRef = useIdleAction(actions, phase);
+  /** Run-Clip des Umgekippten — Gewicht folgt der Strampel-Hüllkurve. */
+  const kickActionRef = useRef<THREE.AnimationAction | null>(null);
   const bodyRef = useRef<THREE.Group>(null);
-  const earLeftRef = useRef<THREE.Group>(null);
-  const earRightRef = useRef<THREE.Group>(null);
-  const mouthRef = useRef<THREE.Mesh>(null);
-  const footLeftRef = useRef<THREE.Mesh>(null);
-  const footRightRef = useRef<THREE.Mesh>(null);
   const spriteRef = useRef<THREE.Sprite>(null);
   const spriteMaterialRef = useRef<THREE.SpriteMaterial>(null);
   /** Tap-Anfrage aus dem Event-Handler — wird im useFrame-Loop konsumiert. */
@@ -464,6 +385,22 @@ function Rabbid({
   const bwaahStartRef = useRef<number | null>(null);
 
   const baseBodyY = fallen ? FALLEN_BODY_Y : 0;
+  const modelScale = fallen ? FALLEN_MODEL_SCALE : RABBID_MODEL_SCALE;
+
+  useEffect(() => {
+    if (!fallen) return undefined;
+    const kick = findAction(actions, "Run");
+    kickActionRef.current = kick;
+    if (!kick) return undefined;
+    // Läuft dauerhaft mit Gewicht 0 mit; die Hüllkurve blendet ihn für die
+    // Strampel-Bursts ein — auf dem Rücken liegend strampeln so die Beine.
+    kick.reset().play();
+    kick.setEffectiveWeight(0);
+    return () => {
+      kick.stop();
+      kickActionRef.current = null;
+    };
+  }, [actions, fallen]);
 
   const handleTap = (event: ThreeEvent<MouseEvent>) => {
     event.stopPropagation();
@@ -483,14 +420,17 @@ function Rabbid({
   };
 
   useFrame((state) => {
-    if (!gates.visibleRef.current) return;
+    const isVisible = gates.visibleRef.current;
+    // Wie beim Helden: Skelett-Clips vor dem Early-Return pausieren.
+    const idle = idleActionRef.current;
+    const kickAction = kickActionRef.current;
+    if (idle) idle.paused = reducedMotion || !isVisible;
+    if (kickAction) kickAction.paused = reducedMotion || !isVisible;
+    if (!isVisible) return;
     const body = bodyRef.current;
-    const earL = earLeftRef.current;
-    const earR = earRightRef.current;
-    const mouth = mouthRef.current;
     const sprite = spriteRef.current;
     const spriteMat = spriteMaterialRef.current;
-    if (!body || !earL || !earR || !mouth || !sprite || !spriteMat) return;
+    if (!body || !sprite || !spriteMat) return;
     const t = state.clock.elapsedTime;
 
     if (bwaahRequestedRef.current) {
@@ -534,43 +474,22 @@ function Rabbid({
     );
     spriteMat.opacity = spriteOpacity;
 
-    // Mund reißt beim Schrei auf.
-    mouth.scale.set(
-      1 + shout * (BWAAAH_MOUTH_SCALE_X - 1),
-      1 + shout * (BWAAAH_MOUTH_SCALE_Y - 1),
-      1,
-    );
-
     if (reducedMotion) return;
 
-    // Idle: Körper-Ruckeln + Ohren-Wackeln, pro Hase versetzt; beim Schrei
-    // flattern die Ohren stark obendrauf.
+    // Idle: Körper-Ruckeln der Root-Group, pro Hase versetzt; beim Schrei
+    // schüttelt sich der ganze Körper kräftig obendrauf.
     let jiggle = Math.sin(t * wobbleFreq + phase) * RABBID_JIGGLE_ANGLE;
-    const flap =
-      shout * Math.sin(t * BWAAAH_EAR_FLAP_SPEED) * BWAAAH_EAR_FLAP_ANGLE;
-    earL.rotation.z =
-      RABBID_EAR_TILT +
-      Math.sin(t * wobbleFreq * 0.8 + phase) * RABBID_EAR_IDLE_ANGLE +
-      flap;
-    earR.rotation.z =
-      -RABBID_EAR_TILT +
-      Math.sin(t * wobbleFreq * 0.8 + phase + 1.7) * RABBID_EAR_IDLE_ANGLE -
-      flap;
+    jiggle += Math.sin(t * BWAAAH_SHAKE_SPEED) * BWAAAH_SHAKE_ANGLE * shout;
 
-    // Der Umgekippte strampelt gelegentlich (kurze Bursts, lange Pausen).
+    // Der Umgekippte strampelt gelegentlich (kurze Bursts, lange Pausen):
+    // die Hüllkurve blendet den Run-Clip ein und schüttelt den Körper.
     if (fallen) {
       const kick =
         Math.max(0, Math.sin(t * KICK_ENVELOPE_OMEGA + phase)) **
         KICK_ENVELOPE_POWER;
-      const footL = footLeftRef.current;
-      const footR = footRightRef.current;
-      if (footL && footR) {
-        footL.rotation.x =
-          Math.sin(t * KICK_FOOT_SPEED) * KICK_FOOT_ANGLE * kick;
-        footR.rotation.x =
-          Math.sin(t * KICK_FOOT_SPEED + Math.PI) * KICK_FOOT_ANGLE * kick;
-      }
-      jiggle += Math.sin(t * 18) * KICK_BODY_SHAKE * kick;
+      if (kickAction) kickAction.setEffectiveWeight(kick);
+      if (idle) idle.setEffectiveWeight(1 - kick);
+      jiggle += Math.sin(t * KICK_SHAKE_SPEED) * KICK_BODY_SHAKE * kick;
     }
 
     body.rotation.z = jiggle;
@@ -603,60 +522,8 @@ function Rabbid({
         onPointerOver={handlePointerOver}
         onPointerOut={handlePointerOut}
       >
-        {/* Kapsel-Körper */}
-        <mesh position={[0, 0.45, 0]}>
-          <capsuleGeometry args={[0.26, 0.3, 4, 14]} />
-          <meshStandardMaterial color={RABBID_FUR} roughness={0.55} />
-        </mesh>
-        {/* Kleiner runder Bauch */}
-        <mesh position={[0, 0.36, 0.16]} scale={[0.17, 0.19, 0.13]}>
-          <sphereGeometry args={[1, 12, 10]} />
-          <meshStandardMaterial color={RABBID_BELLY} roughness={0.6} />
-        </mesh>
-
-        {/* Füße — kleine Ellipsoide; beim Umgekippten strampeln sie */}
-        <mesh
-          ref={footLeftRef}
-          position={[-0.12, 0.05, 0.16]}
-          scale={[0.11, 0.07, 0.18]}
-        >
-          <sphereGeometry args={[1, 10, 8]} />
-          <meshStandardMaterial color={RABBID_FUR} roughness={0.55} />
-        </mesh>
-        <mesh
-          ref={footRightRef}
-          position={[0.12, 0.05, 0.16]}
-          scale={[0.11, 0.07, 0.18]}
-        >
-          <sphereGeometry args={[1, 10, 8]} />
-          <meshStandardMaterial color={RABBID_FUR} roughness={0.55} />
-        </mesh>
-
-        {/* Riesige ovale Augen — Pupillen schielend versetzt */}
-        <RabbidEye x={-0.085} pupilOffset={[0.014, 0.012]} />
-        <RabbidEye x={0.085} pupilOffset={[0.016, -0.012]} />
-
-        {/* Mund — reißt beim „BWAAAH" auf */}
-        <mesh ref={mouthRef} position={[0, 0.47, 0.255]} scale={[1, 1, 1]}>
-          <sphereGeometry args={[0.035, 10, 8]} />
-          <meshStandardMaterial color={RABBID_MOUTH} roughness={0.5} />
-        </mesh>
-        {/* Zwei große Hasenzähne */}
-        <mesh position={[-0.018, 0.42, 0.25]} scale={[0.016, 0.024, 0.01]}>
-          <sphereGeometry args={[1, 8, 6]} />
-          <meshStandardMaterial color="#ffffff" roughness={0.35} />
-        </mesh>
-        <mesh position={[0.018, 0.42, 0.25]} scale={[0.016, 0.024, 0.01]}>
-          <sphereGeometry args={[1, 8, 6]} />
-          <meshStandardMaterial color="#ffffff" roughness={0.35} />
-        </mesh>
-
-        {/* Zwei lange aufrechte Ohren */}
-        <group ref={earLeftRef} position={[-0.09, 0.78, -0.02]}>
-          <RabbidEar mirror={-1} />
-        </group>
-        <group ref={earRightRef} position={[0.09, 0.78, -0.02]}>
-          <RabbidEar mirror={1} />
+        <group scale={modelScale}>
+          <primitive object={clone} />
         </group>
       </group>
 
@@ -689,6 +556,24 @@ export const RaymanScene = ({ index }: SectionProps) => {
   const visibleRef = useRef(false);
   const interactiveRef = useRef(false);
   const gates: GateRefs = { visibleRef, interactiveRef };
+  /** Erst nach dem Idle-Preload mounten — die Sections sind alle ab
+   *  Experience-Start gemountet, useGLTF würde sonst sofort beim First
+   *  Paint laden (Netz-Konkurrenz zum Hero). */
+  const [modelsReady, setModelsReady] = useState(false);
+
+  useEffect(() => {
+    // Fenster 1: GLBs in den useGLTF-Cache laden; Fenster 2: Figuren
+    // mounten (falls noch nicht fertig geladen, fängt Suspense das ab).
+    let cancelMount: (() => void) | null = null;
+    const cancelPreload = scheduleIdle(() => {
+      preloadRaymanModels();
+      cancelMount = scheduleIdle(() => setModelsReady(true));
+    });
+    return () => {
+      cancelPreload();
+      cancelMount?.();
+    };
+  }, []);
 
   useFrame(() => {
     const root = rootRef.current;
@@ -701,40 +586,46 @@ export const RaymanScene = ({ index }: SectionProps) => {
 
   return (
     <group ref={rootRef} position={[0, -1.6, 0]}>
-      <RaymanHero
-        position={[-1.2, 0, 0]}
-        scale={1.15}
-        gates={gates}
-        reducedMotion={reducedMotion}
-      />
-      <Rabbid
-        position={[0.55, 0, -0.1]}
-        rotationY={-0.35}
-        scale={0.9}
-        wobbleFreq={3.1}
-        phase={0}
-        gates={gates}
-        reducedMotion={reducedMotion}
-      />
-      <Rabbid
-        position={[1.75, 0, -0.35]}
-        rotationY={0.3}
-        scale={0.8}
-        wobbleFreq={3.8}
-        phase={2.1}
-        gates={gates}
-        reducedMotion={reducedMotion}
-      />
-      <Rabbid
-        position={[1.15, 0, 0.75]}
-        rotationY={0.5}
-        scale={0.85}
-        fallen
-        wobbleFreq={2.6}
-        phase={4.2}
-        gates={gates}
-        reducedMotion={reducedMotion}
-      />
+      {modelsReady && (
+        // Eigene Suspense-Grenze: das Nachladen der GLBs darf nie die
+        // umgebende Szene in den globalen Fallback zwingen.
+        <Suspense fallback={null}>
+          <RaymanHero
+            position={[-1.2, 0, 0]}
+            scale={1.15}
+            gates={gates}
+            reducedMotion={reducedMotion}
+          />
+          <Rabbid
+            position={[0.55, 0, -0.1]}
+            rotationY={-0.35}
+            scale={0.9}
+            wobbleFreq={3.1}
+            phase={0}
+            gates={gates}
+            reducedMotion={reducedMotion}
+          />
+          <Rabbid
+            position={[1.75, 0, -0.35]}
+            rotationY={0.3}
+            scale={0.8}
+            wobbleFreq={3.8}
+            phase={2.1}
+            gates={gates}
+            reducedMotion={reducedMotion}
+          />
+          <Rabbid
+            position={[1.15, 0, 0.75]}
+            rotationY={0.5}
+            scale={0.85}
+            fallen
+            wobbleFreq={2.6}
+            phase={4.2}
+            gates={gates}
+            reducedMotion={reducedMotion}
+          />
+        </Suspense>
+      )}
     </group>
   );
 };
