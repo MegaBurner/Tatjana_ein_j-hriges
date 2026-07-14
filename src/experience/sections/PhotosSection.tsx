@@ -6,7 +6,7 @@ import {
   useSyncExternalStore,
   type RefObject,
 } from "react";
-import { useFrame } from "@react-three/fiber";
+import { useFrame, type ThreeEvent } from "@react-three/fiber";
 import { useScroll, useTexture } from "@react-three/drei";
 import * as THREE from "three";
 import { sectionVisibility } from "../useSectionProgress";
@@ -58,6 +58,23 @@ const PAGE_H = 1.5;
 // sichtbar (das "hängt am Buch"-Gefühl).
 const PHOTO_INSET_W = PAGE_W - 0.16;
 const PHOTO_INSET_H = PAGE_H - 0.2;
+
+// --- Zoom-Pop-Interaktion: Klick/Tipp aufs aktuell sichtbare Foto ----------
+/** Pointer-Bewegung (px), bis zu der ein Klick als Tap gilt — gleiches
+ *  Kriterium wie die Tap/Drag-Unterscheidung beim Globus, damit
+ *  Scroll-Gesten über dem Buch keinen Pop auslösen. */
+const TAP_MAX_MOVEMENT_PX = 8;
+/** Ab dieser Sichtbarkeit nimmt das Foto Taps an (kein Klicken "im Vorbeiscrollen"). */
+const TAP_VISIBILITY_THRESHOLD = 0.3;
+/** Amplitude der gedämpften Pop-Feder: erster Ausschlag wächst auf ~106 %
+ *  (0.11 · sin/exp-Peak ≈ +0.06, siehe Kurve in `OpenPage`). */
+const POP_AMPLITUDE = 0.11;
+/** Kreisfrequenz (rad/s) der Pop-Feder — erster Peak nach ~0,08 s. */
+const POP_FREQUENCY = 14;
+/** Abklingrate (1/s) der Pop-Feder — federt mit leichtem Unterschwinger zurück. */
+const POP_DECAY = 6;
+/** Nach dieser Zeit gilt der Pop als ausgeschwungen, Scale wird exakt 1. */
+const POP_DURATION_SECONDS = 0.7;
 
 /** Dauer einer Blätter-Drehung in Sekunden — spürbar, aber nicht zäh. */
 const TURN_DURATION_SECONDS = 0.85;
@@ -207,16 +224,57 @@ function turningSheetIndices(turn: ActiveTurn): TurningSheetIndices {
  * Seiten-Plane in voller Seitengröße, darauf als Kind die Foto-Plane mit
  * z-Offset +0.002 und Aspect-Fit-Größe — das Foto sitzt sichtbar MIT Rand
  * auf der Seite, nie größer als die Seite, nie verzerrt.
+ *
+ * Klick/Tipp aufs Foto löst einen kurzen Zoom-Pop aus: die Foto-Plane
+ * skaliert entlang einer gedämpften Feder `1 + A·sin(ωt)·e^(−kt)` kurz auf
+ * ~106 % und federt (mit leichtem Unterschwinger) zurück auf exakt 1.
+ * Gewertet werden nur echte Taps (`event.delta` < TAP_MAX_MOVEMENT_PX,
+ * Muster wie beim Globus-Drag) — Scroll-Gesten und Klicks während einer
+ * laufenden Blätter-Drehung (`getTurnLocked`) bleiben wirkungslos, damit
+ * das manuelle Blättern unangetastet bleibt.
  */
 function OpenPage({
   texture,
   fit,
   side,
+  index,
 }: {
   texture: THREE.Texture;
   fit: PhotoFit;
   side: "left" | "right";
+  index: number;
 }) {
+  const scroll = useScroll();
+  const photoRef = useRef<THREE.Mesh>(null);
+  /** Verstrichene Pop-Zeit (s); >= POP_DURATION_SECONDS = inaktiv. */
+  const popElapsed = useRef(POP_DURATION_SECONDS);
+
+  const handlePhotoTap = (event: ThreeEvent<MouseEvent>) => {
+    if (event.delta > TAP_MAX_MOVEMENT_PX) return;
+    if (getTurnLocked()) return;
+    if (sectionVisibility(scroll, index) < TAP_VISIBILITY_THRESHOLD) return;
+    popElapsed.current = 0;
+  };
+
+  useFrame((_, delta) => {
+    const photo = photoRef.current;
+    if (!photo) return;
+    if (popElapsed.current >= POP_DURATION_SECONDS) return;
+    popElapsed.current = Math.min(
+      popElapsed.current + delta,
+      POP_DURATION_SECONDS,
+    );
+    if (popElapsed.current >= POP_DURATION_SECONDS) {
+      photo.scale.setScalar(1);
+      return;
+    }
+    const t = popElapsed.current;
+    const springScale =
+      1 +
+      POP_AMPLITUDE * Math.sin(t * POP_FREQUENCY) * Math.exp(-t * POP_DECAY);
+    photo.scale.setScalar(springScale);
+  });
+
   const sign = side === "right" ? 1 : -1;
   return (
     <group position={[sign * (PAGE_W / 2), 0, 0.001]}>
@@ -224,7 +282,19 @@ function OpenPage({
         <planeGeometry args={[PAGE_W, PAGE_H]} />
         <meshStandardMaterial color="#fdf6ec" roughness={0.75} />
       </mesh>
-      <mesh position={[0, 0, 0.002]}>
+      <mesh
+        ref={photoRef}
+        position={[0, 0, 0.002]}
+        onClick={handlePhotoTap}
+        onPointerOver={() => {
+          if (sectionVisibility(scroll, index) >= TAP_VISIBILITY_THRESHOLD) {
+            document.body.style.cursor = "pointer";
+          }
+        }}
+        onPointerOut={() => {
+          document.body.style.cursor = "";
+        }}
+      >
         <planeGeometry args={[fit.width, fit.height]} />
         <meshBasicMaterial map={texture} />
       </mesh>
@@ -395,8 +465,13 @@ function PhotoPages({ index }: { index: number }) {
 
   return (
     <group>
-      <OpenPage texture={leftTexture} fit={leftFit} side="left" />
-      <OpenPage texture={rightTexture} fit={rightFit} side="right" />
+      <OpenPage texture={leftTexture} fit={leftFit} side="left" index={index} />
+      <OpenPage
+        texture={rightTexture}
+        fit={rightFit}
+        side="right"
+        index={index}
+      />
       {turn && (
         <TurningSheet
           turn={turn}

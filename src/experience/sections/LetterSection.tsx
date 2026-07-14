@@ -1,5 +1,6 @@
 import { Suspense, useEffect, useMemo, useRef } from "react";
 import { useFrame, useLoader } from "@react-three/fiber";
+import type { ThreeEvent } from "@react-three/fiber";
 import { useScroll } from "@react-three/drei";
 import * as THREE from "three";
 import { sectionProgress, sectionVisibility } from "../useSectionProgress";
@@ -35,6 +36,22 @@ const FOLD_OPEN_RESIDUAL = 0.05;
 const HINGE_Z_BIAS = 0.014;
 const PANEL_FACE_GAP = 0.0025;
 const SHEET_CENTER_Y = -0.75;
+/** Grund-Neigung des Bogens (rotation.x/y) — Basis für den Wipp-Puls. */
+const SHEET_BASE_TILT_X = 0.05;
+const SHEET_BASE_TILT_Y = -0.05;
+
+// --- Klick-Interaktion (Runde 4): der Bogen selbst öffnet das Brief-Modal --
+// Tap-Erkennung wie bei der Globus-Drag-Logik (TOUCH_AXIS_DECISION_PX in
+// GlobeSection): nur Klicks mit geringer Pointer-Bewegung zählen, damit
+// Scroll-/Drag-Gesten nicht versehentlich das Modal öffnen. R3F liefert die
+// Down→Up-Distanz in Pixeln direkt als `event.delta`.
+const TAP_MAX_DELTA_PX = 6;
+/** Dauer des Auf-Wippens nach dem Tap; danach öffnet das bestehende Modal. */
+const BOB_DURATION_S = 0.45;
+/** Wie stark der Bogen beim Wippen kurz aufskaliert. */
+const BOB_SCALE_AMPLITUDE = 0.05;
+/** Wie weit sich der Bogen beim Wippen zur Kamera aufkippt (rad). */
+const BOB_TILT_AMPLITUDE = 0.12;
 
 const HEART_COUNT = 4;
 const DUST_COUNT = 10;
@@ -382,14 +399,18 @@ function FoldedLetterSheet({
   scroll,
   index,
   reducedMotion,
+  onOpenLetter,
 }: {
   scroll: ScrollState;
   index: number;
   reducedMotion: boolean;
+  onOpenLetter: () => void;
 }) {
   const [topTexture, middleTexture, bottomTexture] = useLetterPanelTextures();
   const grainTexture = getPaperGrainTexture();
   const sheetRef = useRef<THREE.Group>(null);
+  /** Startzeit (performance.now()) des laufenden Wipp-Pulses, sonst null. */
+  const bobStartMsRef = useRef<number | null>(null);
 
   useFrame((state) => {
     const sheet = sheetRef.current;
@@ -398,13 +419,52 @@ function FoldedLetterSheet({
     const t = reducedMotion ? 0 : state.clock.elapsedTime;
     sheet.position.y = SHEET_CENTER_Y + Math.sin(t * 0.5) * 0.045;
     sheet.rotation.z = Math.sin(t * 0.33 + 1.1) * 0.02;
+
+    // Wipp-Puls nach Tap: eine Sinus-Halbwelle kippt den Bogen kurz zur
+    // Kamera auf und lässt ihn minimal wachsen; nach Ablauf öffnet genau
+    // einmal das bestehende Brief-Modal.
+    const bobStartMs = bobStartMsRef.current;
+    if (bobStartMs === null) return;
+    const bobT = (performance.now() - bobStartMs) / 1000 / BOB_DURATION_S;
+    if (bobT >= 1) {
+      bobStartMsRef.current = null;
+      sheet.scale.setScalar(1);
+      sheet.rotation.x = SHEET_BASE_TILT_X;
+      onOpenLetter();
+      return;
+    }
+    const bob = Math.sin(bobT * Math.PI);
+    sheet.scale.setScalar(1 + bob * BOB_SCALE_AMPLITUDE);
+    sheet.rotation.x = SHEET_BASE_TILT_X - bob * BOB_TILT_AMPLITUDE;
   });
+
+  const handleClick = (event: ThreeEvent<MouseEvent>) => {
+    // Nur echte Taps (kaum Pointer-Bewegung) — kein Öffnen nach Drag/Scroll.
+    if (event.delta > TAP_MAX_DELTA_PX) return;
+    event.stopPropagation();
+    // Cursor zurücksetzen: das Modal legt sich gleich über die Canvas,
+    // wodurch kein onPointerOut mehr feuern würde.
+    document.body.style.cursor = "";
+    if (reducedMotion) {
+      onOpenLetter();
+      return;
+    }
+    // Läuft bereits ein Puls, nicht neu starten — das Modal öffnet ohnehin.
+    bobStartMsRef.current ??= performance.now();
+  };
 
   return (
     <group
       ref={sheetRef}
       position={[0, SHEET_CENTER_Y, 0]}
-      rotation={[0.05, -0.05, 0]}
+      rotation={[SHEET_BASE_TILT_X, SHEET_BASE_TILT_Y, 0]}
+      onClick={handleClick}
+      onPointerOver={() => {
+        document.body.style.cursor = "pointer";
+      }}
+      onPointerOut={() => {
+        document.body.style.cursor = "";
+      }}
     >
       <MiddlePanel frontTexture={middleTexture} backTexture={grainTexture} />
       <FoldPanel
@@ -497,7 +557,7 @@ function EnvelopeProp() {
   );
 }
 
-export const LetterScene = ({ index }: SectionProps) => {
+export const LetterScene = ({ index, onOpenLetter }: SectionProps) => {
   const scroll = useScroll();
   const reducedMotion = usePrefersReducedMotion();
   const rootRef = useRef<THREE.Group>(null);
@@ -533,6 +593,7 @@ export const LetterScene = ({ index }: SectionProps) => {
           scroll={scroll}
           index={index}
           reducedMotion={reducedMotion}
+          onOpenLetter={onOpenLetter}
         />
       </Suspense>
 

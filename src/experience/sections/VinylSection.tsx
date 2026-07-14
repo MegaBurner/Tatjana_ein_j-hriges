@@ -1,5 +1,5 @@
 import { Suspense, useEffect, useMemo, useRef } from "react";
-import { useFrame, useLoader } from "@react-three/fiber";
+import { useFrame, useLoader, type ThreeEvent } from "@react-three/fiber";
 import { useScroll, RoundedBox } from "@react-three/drei";
 import * as THREE from "three";
 import { sectionProgress, sectionVisibility } from "../useSectionProgress";
@@ -12,6 +12,22 @@ const REST_ANGLE = -0.85;
 const PLAY_ANGLE = 0;
 const ARM_REST_Y = 0.06;
 const ARM_PLAY_Y = 0.015;
+
+// --- Scratch-Interaktion: Klick/Tipp auf die Platte ------------------------
+/** Pointer-Bewegung (px), bis zu der ein Klick als Tap gilt — gleiches
+ *  Kriterium wie die Tap/Drag-Unterscheidung beim Globus, damit
+ *  Scroll-/Drag-Gesten keinen Scratch auslösen. */
+const TAP_MAX_MOVEMENT_PX = 8;
+/** Ab dieser Sichtbarkeit nimmt die Platte Taps an (kein Klicken "im Vorbeiscrollen"). */
+const TAP_VISIBILITY_THRESHOLD = 0.3;
+/** Dauer des Scratch-Wobbles (s), danach läuft die normale Rotation weiter. */
+const SCRATCH_DURATION_SECONDS = 0.7;
+/** Zusätzliche Drehgeschwindigkeit (rad/s) direkt nach dem Tap, klingt linear ab. */
+const SCRATCH_SPEED_BOOST = 7;
+/** Frequenz (rad/s) des Rotations-Ruckelns während des Scratches. */
+const SCRATCH_WOBBLE_FREQUENCY = 30;
+/** Maximale Ruckel-Auslenkung (rad) zu Scratch-Beginn. */
+const SCRATCH_WOBBLE_AMPLITUDE = 0.14;
 
 /** Konzentrische Rillen als Bump-Map, einmalig Canvas-generiert (siehe src/three/Vinyl3D.tsx). */
 function makeGrooveTexture(): THREE.CanvasTexture {
@@ -69,7 +85,21 @@ function Disc({
   const scroll = useScroll();
   const spinRef = useRef<THREE.Group>(null);
   const speed = useRef(0);
+  /** Aufsummierter Basis-Drehwinkel (rad). Der Scratch-Wobble wird pro Frame
+   *  nur ADDIERT, nie mit aufsummiert — nach dem Scratch dreht die Platte
+   *  exakt dort weiter, wo sie ohne Wobble stünde. */
+  const baseRotation = useRef(0);
+  /** Verstrichene Scratch-Zeit (s); >= SCRATCH_DURATION_SECONDS = inaktiv. */
+  const scratchElapsed = useRef(SCRATCH_DURATION_SECONDS);
   const grooves = getGrooveTexture();
+
+  const handleDiscTap = (event: ThreeEvent<MouseEvent>) => {
+    // `event.delta` = Pixel-Distanz zwischen pointerdown und diesem Klick —
+    // nur echte Taps werten, keine Scroll-/Drag-Gesten über der Platte.
+    if (event.delta > TAP_MAX_MOVEMENT_PX) return;
+    if (sectionVisibility(scroll, index) < TAP_VISIBILITY_THRESHOLD) return;
+    scratchElapsed.current = 0;
+  };
 
   useFrame((_, delta) => {
     if (sectionVisibility(scroll, index) < VISIBILITY_EPSILON) return;
@@ -80,13 +110,42 @@ function Disc({
       1.8,
       delta,
     );
+
+    // Scratch-Wobble: kurzes Aufdrehen (Boost) + Ruckel-Sinus, beides klingt
+    // über SCRATCH_DURATION_SECONDS linear ab — danach exakt Normalzustand.
+    let scratchBoost = 0;
+    let scratchWobble = 0;
+    if (scratchElapsed.current < SCRATCH_DURATION_SECONDS) {
+      scratchElapsed.current += delta;
+      const decay =
+        1 - Math.min(scratchElapsed.current / SCRATCH_DURATION_SECONDS, 1);
+      scratchBoost = SCRATCH_SPEED_BOOST * decay;
+      scratchWobble =
+        Math.sin(scratchElapsed.current * SCRATCH_WOBBLE_FREQUENCY) *
+        SCRATCH_WOBBLE_AMPLITUDE *
+        decay;
+    }
+
+    baseRotation.current += (speed.current + scratchBoost) * delta;
     if (spinRef.current) {
-      spinRef.current.rotation.y += speed.current * delta;
+      spinRef.current.rotation.y = baseRotation.current + scratchWobble;
     }
   });
 
   return (
-    <group ref={spinRef} position={[0, 0.045, 0]}>
+    <group
+      ref={spinRef}
+      position={[0, 0.045, 0]}
+      onClick={handleDiscTap}
+      onPointerOver={() => {
+        if (sectionVisibility(scroll, index) >= TAP_VISIBILITY_THRESHOLD) {
+          document.body.style.cursor = "pointer";
+        }
+      }}
+      onPointerOut={() => {
+        document.body.style.cursor = "";
+      }}
+    >
       <mesh>
         <cylinderGeometry args={[1.02, 1.02, 0.035, 64]} />
         <meshPhysicalMaterial
@@ -199,7 +258,7 @@ export const VinylScene = ({ audioRef, currentSong, index }: SectionProps) => {
   });
 
   return (
-    <group ref={rootRef} position={[0, -0.2, 0]}>
+    <group ref={rootRef} position={[0, -0.45, 0]}>
       <group rotation={[0.45, 0, 0]}>
         <RoundedBox
           args={[3.0, 0.32, 2.3]}
@@ -258,7 +317,8 @@ export const VinylHtml = ({
     <h2 className="exp-title">Diese Songs erinnern mich an dich</h2>
     <p className="exp-subtitle">{currentSong.title}</p>
     <p className="exp-subtitle" style={{ opacity: 0.7, fontSize: "0.85rem" }}>
-      Tausend andere auch. Die zeig ich dir bei einem Late Night Drive durch Paris.
+      Tausend andere auch. Die zeig ich dir bei einem Late Night Drive durch
+      Paris.
     </p>
     <div style={{ display: "flex", gap: "0.75rem" }}>
       <button

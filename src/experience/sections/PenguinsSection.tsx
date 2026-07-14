@@ -1,6 +1,7 @@
 import { useMemo, useRef } from "react";
 import type { RefObject } from "react";
 import { useFrame } from "@react-three/fiber";
+import type { ThreeEvent } from "@react-three/fiber";
 import { useScroll } from "@react-three/drei";
 import * as THREE from "three";
 import { sectionProgress, sectionVisibility } from "../useSectionProgress";
@@ -28,6 +29,29 @@ const START_X = 1.75;
 const MEET_X = 0.69;
 const LEAN_ANGLE = 0.28;
 
+// --- Klick/Tipp-Interaktion: Extra-Kuss ----------------------------------
+/** Klick nur werten, wenn sich der Pointer < 8px bewegt hat (Tap vs. Drag/Scroll). */
+const TAP_MAX_DELTA_PX = 8;
+/** Ab dieser Sichtbarkeit reagiert die Szene auf Klick/Tipp (analog Globus-Drag). */
+const INTERACTION_VISIBILITY_THRESHOLD = 0.3;
+/** Timeline des Extra-Kusses in Sekunden: kurz zurückweichen, erneut
+ *  anwatscheln, Kuss halten, zurück zum scroll-getriebenen Zustand blenden. */
+const EXTRA_KISS_RETREAT_DURATION = 0.7;
+const EXTRA_KISS_APPROACH_DURATION = 1.0;
+const EXTRA_KISS_HOLD_DURATION = 1.3;
+const EXTRA_KISS_RELEASE_DURATION = 0.8;
+const EXTRA_KISS_TOTAL_DURATION =
+  EXTRA_KISS_RETREAT_DURATION +
+  EXTRA_KISS_APPROACH_DURATION +
+  EXTRA_KISS_HOLD_DURATION +
+  EXTRA_KISS_RELEASE_DURATION;
+/** Effektiver Progress im zurückgewichenen Zustand (walkT≈0.4, Lean/Kuss gelöst). */
+const EXTRA_KISS_RETREAT_PROGRESS = 0.12;
+/** Effektiver Progress im Kuss-Moment — sicher über KISS_THRESHOLD. */
+const EXTRA_KISS_PEAK_PROGRESS = 0.62;
+/** Zusätzlicher Schub der Herz-Intensität (>1 ⇒ größere Herzen) beim Extra-Kuss. */
+const EXTRA_KISS_HEART_BURST = 0.5;
+
 /** Y-Skalierung der Augen im Kuss-Kontakt — "happy eyes" als Schlitze. */
 const EYE_SLIT_SCALE = 0.15;
 
@@ -44,6 +68,51 @@ function easeOutBack(t: number): number {
   const c3 = c1 + 1;
   const x = THREE.MathUtils.clamp(t, 0, 1);
   return 1 + c3 * (x - 1) ** 3 + c1 * (x - 1) ** 2;
+}
+
+/**
+ * Effektiver Progress während des Extra-Kusses. Alle bestehenden
+ * Animations-Treiber (walkT, leanT, Kuss-Kontakt, Herz-Intensität) hängen an
+ * `progress`, daher genügt es, ihn temporär durch diese Timeline zu ersetzen —
+ * die damp()-Glättungen im useFrame-Loop machen daraus weiche Bewegungen.
+ */
+function extraKissProgress(elapsed: number, scrollProgress: number): number {
+  const approachEnd =
+    EXTRA_KISS_RETREAT_DURATION + EXTRA_KISS_APPROACH_DURATION;
+  const holdEnd = approachEnd + EXTRA_KISS_HOLD_DURATION;
+  if (elapsed < EXTRA_KISS_RETREAT_DURATION) {
+    return EXTRA_KISS_RETREAT_PROGRESS;
+  }
+  if (elapsed < approachEnd) {
+    const approachT =
+      (elapsed - EXTRA_KISS_RETREAT_DURATION) / EXTRA_KISS_APPROACH_DURATION;
+    return THREE.MathUtils.lerp(
+      EXTRA_KISS_RETREAT_PROGRESS,
+      EXTRA_KISS_PEAK_PROGRESS,
+      approachT,
+    );
+  }
+  if (elapsed < holdEnd) {
+    return EXTRA_KISS_PEAK_PROGRESS;
+  }
+  const releaseT = THREE.MathUtils.clamp(
+    (elapsed - holdEnd) / EXTRA_KISS_RELEASE_DURATION,
+    0,
+    1,
+  );
+  return THREE.MathUtils.lerp(
+    EXTRA_KISS_PEAK_PROGRESS,
+    scrollProgress,
+    releaseT,
+  );
+}
+
+/** Herzchen-Burst-Anteil (Sinus-Hüllkurve) während der Kuss-Haltephase. */
+function extraKissHeartBurst(elapsed: number): number {
+  const holdStart = EXTRA_KISS_RETREAT_DURATION + EXTRA_KISS_APPROACH_DURATION;
+  const holdT = (elapsed - holdStart) / EXTRA_KISS_HOLD_DURATION;
+  if (holdT < 0 || holdT > 1) return 0;
+  return Math.sin(holdT * Math.PI) * EXTRA_KISS_HEART_BURST;
 }
 
 const HEART_COUNT = 12;
@@ -408,14 +477,62 @@ export const PenguinsScene = ({ index }: SectionProps) => {
    *  Augen/ContactHeart) bereits >0, sobald die Section sichtbar/zentriert
    *  ist, und steigt mit `progress` bis zum Kuss auf ihr Maximum. */
   const heartIntensityRef = useRef(0);
+  /** Von useFrame gepflegt: reagiert die Szene gerade auf Klick/Tipp? */
+  const visibleEnoughRef = useRef(false);
+  /** Tap-Anfrage aus dem Event-Handler — wird im useFrame-Loop konsumiert. */
+  const extraKissRequestedRef = useRef(false);
+  /** Startzeit (clock.elapsedTime) des laufenden Extra-Kusses, sonst null. */
+  const extraKissStartRef = useRef<number | null>(null);
+
+  const handleSceneTap = (event: ThreeEvent<MouseEvent>) => {
+    if (!visibleEnoughRef.current) return;
+    if (event.delta > TAP_MAX_DELTA_PX) return;
+    extraKissRequestedRef.current = true;
+  };
+
+  const handlePointerOver = () => {
+    if (visibleEnoughRef.current) {
+      document.body.style.cursor = "pointer";
+    }
+  };
+
+  const handlePointerOut = () => {
+    document.body.style.cursor = "";
+  };
 
   useFrame((state, delta) => {
     const root = rootRef.current;
     if (!root) return;
     const vis = sectionVisibility(scroll, index);
     root.visible = vis > 0.01;
+    visibleEnoughRef.current = vis > INTERACTION_VISIBILITY_THRESHOLD;
 
-    const progress = sectionProgress(scroll, index);
+    const t = state.clock.elapsedTime;
+    const scrollProgress = sectionProgress(scroll, index);
+
+    // Tap-Anfrage konsumieren: Extra-Kuss-Timeline (neu) starten. Ein
+    // erneuter Tap während eines laufenden Extra-Kusses startet ihn neu.
+    if (extraKissRequestedRef.current) {
+      extraKissRequestedRef.current = false;
+      extraKissStartRef.current = t;
+    }
+
+    // Solange der Extra-Kuss läuft, ersetzt seine Timeline den
+    // scroll-getriebenen Progress — die bestehende Watschel-/Lean-/Kuss-
+    // Animation (Runde 3) läuft unverändert darüber und wird so neu getriggert.
+    let progress = scrollProgress;
+    let heartBurst = 0;
+    const extraKissStart = extraKissStartRef.current;
+    if (extraKissStart !== null) {
+      const elapsed = t - extraKissStart;
+      if (elapsed >= EXTRA_KISS_TOTAL_DURATION) {
+        extraKissStartRef.current = null;
+      } else {
+        progress = extraKissProgress(elapsed, scrollProgress);
+        heartBurst = extraKissHeartBurst(elapsed);
+      }
+    }
+
     const walkT = reducedMotion
       ? 1
       : THREE.MathUtils.clamp(progress / WALK_SPAN, 0, 1);
@@ -424,7 +541,6 @@ export const PenguinsScene = ({ index }: SectionProps) => {
       0,
       1,
     );
-    const t = state.clock.elapsedTime;
 
     const x1 = THREE.MathUtils.lerp(-START_X, -MEET_X, walkT);
     const x2 = THREE.MathUtils.lerp(START_X, MEET_X, walkT);
@@ -479,13 +595,16 @@ export const PenguinsScene = ({ index }: SectionProps) => {
 
     // Herzen: sobald die Section sichtbar/zentriert ist (vis), steigt die
     // Intensität mit dem Fortschritt bis zum Kuss-Schwellwert auf ihr Maximum.
+    // Der Extra-Kuss legt einen Burst obendrauf (Intensität >1 ⇒ größere
+    // Herzen, gedeckelt durch die Hüllkurve auf max. 1 + EXTRA_KISS_HEART_BURST).
     const heartProgressFactor = THREE.MathUtils.clamp(
       progress / KISS_THRESHOLD,
       0,
       1,
     );
     const heartTarget =
-      vis * THREE.MathUtils.lerp(HEART_BASE_INTENSITY, 1, heartProgressFactor);
+      vis * THREE.MathUtils.lerp(HEART_BASE_INTENSITY, 1, heartProgressFactor) +
+      heartBurst;
     heartIntensityRef.current = THREE.MathUtils.damp(
       heartIntensityRef.current,
       heartTarget,
@@ -495,7 +614,14 @@ export const PenguinsScene = ({ index }: SectionProps) => {
   });
 
   return (
-    <group ref={rootRef} position={[0, -0.95, 0]}>
+    // Tap irgendwo auf die Szene (Pinguine, Eisscholle, Herzen) → Extra-Kuss.
+    <group
+      ref={rootRef}
+      position={[0, -0.8, 0]}
+      onClick={handleSceneTap}
+      onPointerOver={handlePointerOver}
+      onPointerOut={handlePointerOut}
+    >
       <IceFloe />
 
       {/* Leichter Yaw-Versatz dreht die Gesichter etwas zur Kamera, statt reinem Profil */}

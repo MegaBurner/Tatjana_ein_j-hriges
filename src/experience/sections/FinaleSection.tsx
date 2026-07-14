@@ -1,8 +1,9 @@
-import { useMemo, useRef } from "react";
-import { useFrame } from "@react-three/fiber";
+import { useEffect, useMemo, useRef } from "react";
+import { useFrame, type ThreeEvent } from "@react-three/fiber";
 import { useScroll } from "@react-three/drei";
 import * as THREE from "three";
 import { sectionProgress, sectionVisibility } from "../useSectionProgress";
+import { getHeartGeometry } from "../heartGeometry";
 import { usePrefersReducedMotion } from "../../three/hooks/useWebGL";
 import type { SectionProps } from "../types";
 
@@ -13,6 +14,46 @@ const VISIBILITY_EPSILON = 0.005;
 const STAMEN_COUNT = 26;
 const ORBIT_PETAL_COUNT = 8;
 const SPARKLE_COUNT = 14;
+
+// --- Tap-Interaktion: Klick irgendwo → Herz-Konfetti am Klickpunkt ----------
+/** Pointer-Bewegung (px), bis zu der ein Klick als Tap gilt — gleiches
+ *  Kriterium wie die Tap/Drag-Unterscheidung beim Globus, damit
+ *  Scroll-/Drag-Gesten kein Konfetti auslösen. */
+const TAP_MAX_MOVEMENT_PX = 8;
+/** Ab dieser Sichtbarkeit nimmt die Szene Taps an (kein Klicken "im Vorbeiscrollen"). */
+const TAP_VISIBILITY_THRESHOLD = 0.3;
+/** Unsichtbare Fänger-Ebene für Taps überall in der Szene (lokale Einheiten,
+ *  die Wurzelgruppe skaliert auf ~0.6–0.85 — deckt so den ganzen Viewport). */
+const TAP_PLANE_WIDTH = 18;
+const TAP_PLANE_HEIGHT = 12;
+/** Liegt vor Blüte/Orbit-Partikeln, damit die Herzen vorne aufpoppen. */
+const TAP_PLANE_Z = 1.0;
+/** Deckel: maximal so viele Bursts gleichzeitig — der älteste fällt raus. */
+const HEART_BURST_MAX_ACTIVE = 3;
+/** Herzen pro Burst (instanced, geteilte Geometrie aus heartGeometry.ts). */
+const HEART_BURST_COUNT = 12;
+const HEART_BURST_DURATION_SECONDS = 1.3;
+/** Aufpopp-Dauer (s) zu Burst-Beginn (Scale 0 → voll). */
+const HEART_BURST_POP_SECONDS = 0.12;
+/** Abwärtsbeschleunigung der Konfetti-Herzen (lokale Einheiten/s²). */
+const HEART_BURST_GRAVITY = -2.4;
+/** Horizontale Startgeschwindigkeit: min + zufälliger Anteil. */
+const HEART_BURST_SPEED_MIN = 0.5;
+const HEART_BURST_SPEED_VARIANCE = 0.9;
+/** Aufwärts-Anteil der Startgeschwindigkeit — Konfetti-Bogen nach oben. */
+const HEART_BURST_UP_MIN = 0.8;
+const HEART_BURST_UP_VARIANCE = 1.2;
+/** Tiefen-Streuung flacher als die horizontale (Szene steht frontal). */
+const HEART_BURST_DEPTH_FACTOR = 0.35;
+const HEART_BURST_SCALE_MIN = 0.1;
+const HEART_BURST_SCALE_VARIANCE = 0.09;
+/** Nur Y-Wobble statt freiem Taumeln — Herz-Silhouette bleibt frontal lesbar
+ *  (gleiche Regel wie KissHearts in PenguinsSection). */
+const HEART_BURST_WOBBLE_SPEED = 2.2;
+const HEART_BURST_WOBBLE_AMPLITUDE = 0.45;
+/** Kleine feste Z-Schräglage pro Herz für den Konfetti-Look. */
+const HEART_BURST_TILT_MAX = 0.35;
+const HEART_BURST_COLORS = ["#e07186", "#e8c77d", "#c4b5e4"] as const;
 
 interface RingConfig {
   count: number;
@@ -308,13 +349,150 @@ function Sparkles({
   );
 }
 
+interface HeartSeed {
+  velocity: THREE.Vector3;
+  size: number;
+  wobblePhase: number;
+  tilt: number;
+}
+
+/** Ein aktiver Herz-Konfetti-Burst: Klickpunkt + Start-Zeitpunkt + Partikel-Seeds. */
+interface HeartBurst {
+  origin: THREE.Vector3;
+  startTime: number;
+  seeds: readonly HeartSeed[];
+}
+
+function makeHeartBurst(origin: THREE.Vector3, startTime: number): HeartBurst {
+  const seeds = Array.from({ length: HEART_BURST_COUNT }, () => {
+    const angle = Math.random() * Math.PI * 2;
+    const speed =
+      HEART_BURST_SPEED_MIN + Math.random() * HEART_BURST_SPEED_VARIANCE;
+    return {
+      velocity: new THREE.Vector3(
+        Math.cos(angle) * speed,
+        HEART_BURST_UP_MIN + Math.random() * HEART_BURST_UP_VARIANCE,
+        Math.sin(angle) * speed * HEART_BURST_DEPTH_FACTOR,
+      ),
+      size: HEART_BURST_SCALE_MIN + Math.random() * HEART_BURST_SCALE_VARIANCE,
+      wobblePhase: Math.random() * Math.PI * 2,
+      tilt: (Math.random() - 0.5) * 2 * HEART_BURST_TILT_MAX,
+    };
+  });
+  return { origin: origin.clone(), startTime, seeds };
+}
+
+/**
+ * Schreibt die Matrizen aller Burst-Slots (ballistische Bahn: Startimpuls +
+ * Gravitation; Aufpoppen über HEART_BURST_POP_SECONDS, Ausblenden über Scale).
+ * Leere Slots kollabieren auf Scale 0.
+ */
+function writeHeartBurstMatrices(
+  mesh: THREE.InstancedMesh,
+  bursts: readonly HeartBurst[],
+  now: number,
+  dummy: THREE.Object3D,
+): void {
+  for (let slot = 0; slot < HEART_BURST_MAX_ACTIVE; slot++) {
+    const burst = bursts[slot];
+    for (let p = 0; p < HEART_BURST_COUNT; p++) {
+      const idx = slot * HEART_BURST_COUNT + p;
+      if (!burst) {
+        dummy.position.set(0, 0, 0);
+        dummy.rotation.set(0, 0, 0);
+        dummy.scale.setScalar(0);
+      } else {
+        const seed = burst.seeds[p];
+        const age = now - burst.startTime;
+        const lifeT = THREE.MathUtils.clamp(
+          age / HEART_BURST_DURATION_SECONDS,
+          0,
+          1,
+        );
+        const pop = Math.min(age / HEART_BURST_POP_SECONDS, 1);
+        dummy.position.set(
+          burst.origin.x + seed.velocity.x * age,
+          burst.origin.y +
+            seed.velocity.y * age +
+            0.5 * HEART_BURST_GRAVITY * age * age,
+          burst.origin.z + seed.velocity.z * age,
+        );
+        dummy.rotation.set(
+          0,
+          Math.sin(now * HEART_BURST_WOBBLE_SPEED + seed.wobblePhase) *
+            HEART_BURST_WOBBLE_AMPLITUDE,
+          seed.tilt,
+        );
+        dummy.scale.setScalar(seed.size * pop * (1 - lifeT));
+      }
+      dummy.updateMatrix();
+      mesh.setMatrixAt(idx, dummy.matrix);
+    }
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+}
+
 export const FinaleScene = ({ index }: SectionProps) => {
   const scroll = useScroll();
   const reducedMotion = usePrefersReducedMotion();
   const rootRef = useRef<THREE.Group>(null);
   const petalConfigs = useMemo(() => makePetalConfigs(), []);
 
-  useFrame((_, delta) => {
+  // --- Tap → Herz-Konfetti ---------------------------------------------------
+  const burstMeshRef = useRef<THREE.InstancedMesh>(null);
+  const burstsRef = useRef<readonly HeartBurst[]>([]);
+  /** true = Burst-Matrizen müssen (noch) geschrieben werden. Startet true,
+   *  damit die Identity-Matrizen des frischen InstancedMesh im ersten Frame
+   *  auf Scale 0 kollabiert werden. */
+  const burstWritePendingRef = useRef(true);
+  /** Letzte bekannte clock-Zeit — der Klick-Handler läuft außerhalb von useFrame. */
+  const elapsedRef = useRef(0);
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+
+  // Instanz-Farben einmalig setzen: Rosé/Gold/Lila im Wechsel (Material bleibt weiß).
+  useEffect(() => {
+    const mesh = burstMeshRef.current;
+    if (!mesh) return;
+    const color = new THREE.Color();
+    const total = HEART_BURST_MAX_ACTIVE * HEART_BURST_COUNT;
+    for (let i = 0; i < total; i++) {
+      mesh.setColorAt(
+        i,
+        color.set(HEART_BURST_COLORS[i % HEART_BURST_COLORS.length]),
+      );
+    }
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  }, []);
+
+  const handleSceneTap = (event: ThreeEvent<MouseEvent>) => {
+    // `event.delta` = Pixel-Distanz zwischen pointerdown und diesem Klick —
+    // nur echte Taps werten, keine Scroll-/Drag-Gesten über der Szene.
+    if (event.delta > TAP_MAX_MOVEMENT_PX) return;
+    if (sectionVisibility(scroll, index) < TAP_VISIBILITY_THRESHOLD) return;
+    const root = rootRef.current;
+    if (!root) return;
+    // Klickpunkt aus Welt- in lokale Gruppen-Koordinaten wandeln — die
+    // Wurzelgruppe ist verschoben und skaliert, das Burst-Mesh lebt darin.
+    const origin = root.worldToLocal(event.point.clone());
+    const bursts = [
+      ...burstsRef.current,
+      makeHeartBurst(origin, elapsedRef.current),
+    ];
+    // Deckel: nur die jüngsten HEART_BURST_MAX_ACTIVE Bursts behalten (immutable).
+    burstsRef.current = bursts.slice(-HEART_BURST_MAX_ACTIVE);
+    burstWritePendingRef.current = true;
+  };
+
+  const handlePointerOver = () => {
+    if (sectionVisibility(scroll, index) >= TAP_VISIBILITY_THRESHOLD) {
+      document.body.style.cursor = "pointer";
+    }
+  };
+  const handlePointerOut = () => {
+    document.body.style.cursor = "";
+  };
+
+  useFrame((state, delta) => {
     const root = rootRef.current;
     if (!root) return;
     const vis = sectionVisibility(scroll, index);
@@ -325,6 +503,27 @@ export const FinaleScene = ({ index }: SectionProps) => {
     root.scale.setScalar(
       THREE.MathUtils.damp(root.scale.x, targetScale, 4, delta),
     );
+
+    // --- Herz-Konfetti-Bursts (Tap-Reaktion) --------------------------------
+    elapsedRef.current = state.clock.elapsedTime;
+    const burstMesh = burstMeshRef.current;
+    if (burstMesh) {
+      const now = state.clock.elapsedTime;
+      if (
+        burstsRef.current.some(
+          (burst) => now - burst.startTime >= HEART_BURST_DURATION_SECONDS,
+        )
+      ) {
+        burstsRef.current = burstsRef.current.filter(
+          (burst) => now - burst.startTime < HEART_BURST_DURATION_SECONDS,
+        );
+      }
+      if (burstsRef.current.length > 0 || burstWritePendingRef.current) {
+        writeHeartBurstMatrices(burstMesh, burstsRef.current, now, dummy);
+        // Nach dem Verklingen aller Bursts genau einmal auf Scale 0 schreiben.
+        burstWritePendingRef.current = burstsRef.current.length > 0;
+      }
+    }
   });
 
   return (
@@ -339,6 +538,28 @@ export const FinaleScene = ({ index }: SectionProps) => {
         index={index}
       />
       <Sparkles reducedMotion={reducedMotion} scroll={scroll} index={index} />
+      {/* Unsichtbare Fänger-Ebene: macht die ganze Szene zur Tap-Fläche.
+          Material ist unsichtbar, Raycasts treffen die Ebene trotzdem. */}
+      <mesh
+        position={[0, 0, TAP_PLANE_Z]}
+        onClick={handleSceneTap}
+        onPointerOver={handlePointerOver}
+        onPointerOut={handlePointerOut}
+      >
+        <planeGeometry args={[TAP_PLANE_WIDTH, TAP_PLANE_HEIGHT]} />
+        <meshBasicMaterial visible={false} />
+      </mesh>
+      <instancedMesh
+        ref={burstMeshRef}
+        args={[
+          getHeartGeometry(),
+          undefined,
+          HEART_BURST_MAX_ACTIVE * HEART_BURST_COUNT,
+        ]}
+        frustumCulled={false}
+      >
+        <meshStandardMaterial roughness={0.35} metalness={0.15} />
+      </instancedMesh>
     </group>
   );
 };
@@ -352,7 +573,9 @@ export const FinaleHtml = () => (
         ♥
       </span>
     </h2>
-    <p className="exp-subtitle">Das war erst das erste Jahr. Ich will alle weiteren mit dir.</p>
+    <p className="exp-subtitle">
+      Das war erst das erste Jahr. Ich will alle weiteren mit dir.
+    </p>
     <p className="exp-subtitle" style={{ opacity: 0.6 }}>
       dein Melihcan
     </p>

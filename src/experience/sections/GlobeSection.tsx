@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
+import type { ThreeEvent } from "@react-three/fiber";
 import { useScroll } from "@react-three/drei";
 import * as THREE from "three";
 import { sectionProgress, sectionVisibility } from "../useSectionProgress";
 import { usePrefersReducedMotion } from "../../three/hooks/useWebGL";
+import { getHeartGeometry } from "../heartGeometry";
 import type { SectionProps } from "../types";
 
 type ScrollState = ReturnType<typeof useScroll>;
@@ -451,6 +453,111 @@ const HEAD_RADIUS = 0.022;
  *  theoretischen Kugel) sicher ohne Spalt aufsitzt. */
 const PIN_EMBED = 0.02;
 
+// --- Pin-Tap: Erinnerungs-Label + Herzchen (Runde 4) -----------------------
+// Tap vs. Drag: R3F liefert die Down→Up-Pointer-Distanz als `event.delta`
+// (Pixel). Als Schwelle dient bewusst dieselbe Konstante wie bei der
+// Achsen-Entscheidung der Drag-Logik, damit sich beide Gesten nie überlappen.
+const TAP_MAX_DELTA_PX = TOUCH_AXIS_DECISION_PX;
+/** Unsichtbare, größere Treffer-Kugel um den Pin-Kopf — die echten Köpfe
+ *  (HEAD_RADIUS) wären auf Touch-Geräten viel zu kleine Ziele. Bewusst kleiner
+ *  als der Abstand der engsten Pin-Nachbarn (Belgrad↔Ostrog ≈ 0.057). */
+const PIN_HIT_RADIUS = 0.05;
+/** Dauer des Scale-Pulses am angetippten Pin. */
+const PIN_PULSE_DURATION_S = 0.5;
+/** Wie stark der Pin beim Puls kurz aufskaliert. */
+const PIN_PULSE_AMPLITUDE = 0.45;
+/** Gesamt-Lebensdauer des aufgeploppten Labels (inkl. Ausblenden). */
+const LABEL_LIFETIME_S = 2.6;
+/** Dauer des Pop-Ins (easeOutBack) des Labels. */
+const LABEL_POP_S = 0.3;
+/** Dauer des Ausblendens am Ende der Label-Lebensdauer. */
+const LABEL_FADE_S = 0.35;
+/** Abstand des Label-Zentrums über dem Pin-Fuß (lokales Y = Flächennormale). */
+const LABEL_OFFSET_Y = 0.3;
+const LABEL_WORLD_WIDTH = 0.55;
+// Label-Textur (Canvas, pro Pin gecacht): Ortsname auf Creme-Karte mit Rand
+// in Pin-Farbe — gleiche Canvas-Technik wie die Globus-Textur, keine Assets.
+const LABEL_TEXTURE_WIDTH = 256;
+const LABEL_TEXTURE_HEIGHT = 96;
+const LABEL_WORLD_HEIGHT =
+  LABEL_WORLD_WIDTH * (LABEL_TEXTURE_HEIGHT / LABEL_TEXTURE_WIDTH);
+const LABEL_CORNER_RADIUS = 30;
+const LABEL_BORDER_WIDTH = 6;
+const LABEL_FONT_PX = 40;
+const LABEL_MAX_TEXT_WIDTH = LABEL_TEXTURE_WIDTH - 48;
+const LABEL_BACKGROUND = "#fdf6ec";
+const LABEL_TEXT_COLOR = "#4c3a44";
+/** Herzchen, die beim Tap vom Pin aufsteigen. */
+const TAP_HEART_COUNT = 3;
+const TAP_HEART_DURATION_S = 1.5;
+/** Zeitversatz zwischen den einzelnen Herzchen. */
+const TAP_HEART_STAGGER_S = 0.15;
+/** Aufstiegshöhe der Herzchen über dem Pin-Kopf. */
+const TAP_HEART_RISE = 0.45;
+const TAP_HEART_MAX_SCALE = 0.055;
+/** Seitliche Grundversätze, damit die Herzchen das Label flankieren. */
+const TAP_HEART_SPREAD_X = 0.09;
+const TAP_HEART_SWAY = 0.035;
+/** Gesamtdauer aller Tap-Effekte — danach wird der Tap-State aufgeräumt. */
+const TAP_EFFECT_TOTAL_S = Math.max(
+  LABEL_LIFETIME_S,
+  TAP_HEART_STAGGER_S * (TAP_HEART_COUNT - 1) + TAP_HEART_DURATION_S,
+);
+
+/** Aktiver Pin-Tap: welcher Pin, und wann (performance.now()) er begann. */
+interface PinTapState {
+  name: string;
+  startedAtMs: number;
+}
+
+const labelTextureCache = new Map<string, THREE.CanvasTexture>();
+
+/** Zeichnet das Erinnerungs-Label einmalig auf ein Canvas — pro Pin gecacht. */
+function getPinLabelTexture(name: string, color: string): THREE.CanvasTexture {
+  const cached = labelTextureCache.get(name);
+  if (cached) return cached;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = LABEL_TEXTURE_WIDTH;
+  canvas.height = LABEL_TEXTURE_HEIGHT;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    const inset = LABEL_BORDER_WIDTH / 2;
+    ctx.beginPath();
+    ctx.roundRect(
+      inset,
+      inset,
+      LABEL_TEXTURE_WIDTH - LABEL_BORDER_WIDTH,
+      LABEL_TEXTURE_HEIGHT - LABEL_BORDER_WIDTH,
+      LABEL_CORNER_RADIUS,
+    );
+    ctx.fillStyle = LABEL_BACKGROUND;
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = LABEL_BORDER_WIDTH;
+    ctx.stroke();
+
+    // Lange Namen (z. B. „Bratislava") proportional verkleinern statt clippen.
+    ctx.font = `600 ${LABEL_FONT_PX}px 'Inter', sans-serif`;
+    const measuredWidth = ctx.measureText(name).width;
+    if (measuredWidth > LABEL_MAX_TEXT_WIDTH) {
+      const fittedPx = Math.floor(
+        (LABEL_FONT_PX * LABEL_MAX_TEXT_WIDTH) / measuredWidth,
+      );
+      ctx.font = `600 ${fittedPx}px 'Inter', sans-serif`;
+    }
+    ctx.fillStyle = LABEL_TEXT_COLOR;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(name, LABEL_TEXTURE_WIDTH / 2, LABEL_TEXTURE_HEIGHT / 2 + 2);
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  labelTextureCache.set(name, texture);
+  return texture;
+}
+
 /** Easing mit leichtem Überschwinger für den Scale-in-Pop der Pins. */
 function easeOutBack(t: number): number {
   const c1 = 1.70158;
@@ -473,22 +580,141 @@ function latLonToPosition(
   );
 }
 
+interface TapHeartSeed {
+  offsetX: number;
+  phase: number;
+}
+
+function makeTapHeartSeeds(): TapHeartSeed[] {
+  return Array.from({ length: TAP_HEART_COUNT }, (_, i) => ({
+    offsetX: (i - (TAP_HEART_COUNT - 1) / 2) * TAP_HEART_SPREAD_X,
+    phase: Math.random() * Math.PI * 2,
+  }));
+}
+
+/**
+ * Tap-Belohnung eines Pins: das Erinnerungs-Label ploppt als Sprite über dem
+ * Pin auf (easeOutBack-Pop, dann Fade-out) und 3 kleine Herzchen steigen vom
+ * Pin-Kopf entlang der Flächennormale auf. Wird pro Tap frisch gemountet
+ * (key=startedAtMs) und nach TAP_EFFECT_TOTAL_S wieder entfernt.
+ */
+function PinTapEffects({
+  pin,
+  startedAtMs,
+  reducedMotion,
+}: {
+  pin: PinDef;
+  startedAtMs: number;
+  reducedMotion: boolean;
+}) {
+  const spriteRef = useRef<THREE.Sprite>(null);
+  const spriteMaterialRef = useRef<THREE.SpriteMaterial>(null);
+  const heartsRef = useRef<THREE.InstancedMesh>(null);
+  const labelTexture = getPinLabelTexture(pin.name, pin.color);
+  const seeds = useMemo(() => makeTapHeartSeeds(), []);
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+  const worldQuaternion = useMemo(() => new THREE.Quaternion(), []);
+
+  useFrame((state) => {
+    const elapsed = (performance.now() - startedAtMs) / 1000;
+
+    const sprite = spriteRef.current;
+    const spriteMaterial = spriteMaterialRef.current;
+    if (sprite && spriteMaterial) {
+      const pop = reducedMotion
+        ? 1
+        : easeOutBack(Math.min(elapsed / LABEL_POP_S, 1));
+      sprite.scale.set(
+        Math.max(LABEL_WORLD_WIDTH * pop, 0.0001),
+        Math.max(LABEL_WORLD_HEIGHT * pop, 0.0001),
+        1,
+      );
+      spriteMaterial.opacity = THREE.MathUtils.clamp(
+        (LABEL_LIFETIME_S - elapsed) / LABEL_FADE_S,
+        0,
+        1,
+      );
+    }
+
+    const hearts = heartsRef.current;
+    if (!hearts) return;
+    // Instanzen billboarden: Globus-/Pin-Rotation herausrechnen, damit die
+    // Herz-Silhouette immer frontal zur Kamera lesbar bleibt.
+    hearts.getWorldQuaternion(worldQuaternion);
+    worldQuaternion.invert().multiply(state.camera.quaternion);
+    seeds.forEach((seed, i) => {
+      const heartT = THREE.MathUtils.clamp(
+        (elapsed - i * TAP_HEART_STAGGER_S) / TAP_HEART_DURATION_S,
+        0,
+        1,
+      );
+      // Sinus-Halbwelle: aus dem Nichts wachsen, oben wieder verschwinden.
+      const scale = Math.max(
+        Math.sin(heartT * Math.PI) * TAP_HEART_MAX_SCALE,
+        0.0001,
+      );
+      dummy.position.set(
+        seed.offsetX + Math.sin(elapsed * 3 + seed.phase) * TAP_HEART_SWAY,
+        NEEDLE_LENGTH + HEAD_RADIUS + heartT * TAP_HEART_RISE,
+        0,
+      );
+      dummy.quaternion.copy(worldQuaternion);
+      dummy.scale.setScalar(scale);
+      dummy.updateMatrix();
+      hearts.setMatrixAt(i, dummy.matrix);
+    });
+    hearts.instanceMatrix.needsUpdate = true;
+  });
+
+  return (
+    <group>
+      <sprite
+        ref={spriteRef}
+        position={[0, LABEL_OFFSET_Y, 0]}
+        scale={[0.0001, 0.0001, 1]}
+      >
+        <spriteMaterial
+          ref={spriteMaterialRef}
+          map={labelTexture}
+          transparent
+          depthWrite={false}
+        />
+      </sprite>
+      {!reducedMotion && (
+        <instancedMesh
+          ref={heartsRef}
+          args={[getHeartGeometry(), undefined, TAP_HEART_COUNT]}
+          frustumCulled={false}
+        >
+          <meshStandardMaterial color={pin.color} roughness={0.4} />
+        </instancedMesh>
+      )}
+    </group>
+  );
+}
+
 function Pin({
   pin,
   scroll,
   index,
   reducedMotion,
   pulsePhase,
+  tap,
+  onTap,
 }: {
   pin: PinDef;
   scroll: ScrollState;
   index: number;
   reducedMotion: boolean;
   pulsePhase: number;
+  tap: PinTapState | null;
+  onTap: (name: string) => void;
 }) {
   const scaleGroupRef = useRef<THREE.Group>(null);
   const ringRef = useRef<THREE.Mesh>(null);
   const ringMaterialRef = useRef<THREE.MeshBasicMaterial>(null);
+  /** Der auf DIESEN Pin bezogene aktive Tap (sonst null). */
+  const activeTap = tap !== null && tap.name === pin.name ? tap : null;
 
   const { position, quaternion } = useMemo(() => {
     const normal = latLonToPosition(pin.lat, pin.lon, 1);
@@ -513,7 +739,19 @@ function Pin({
       0,
       1,
     );
-    scaleGroup.scale.setScalar(Math.max(easeOutBack(revealT), 0.0001));
+    let pinScale = Math.max(easeOutBack(revealT), 0.0001);
+    // Tap-Puls: kurzer Sinus-Halbwellen-Pop multiplikativ auf den Reveal-Scale.
+    if (activeTap !== null && !reducedMotion) {
+      const tapT = THREE.MathUtils.clamp(
+        (performance.now() - activeTap.startedAtMs) /
+          1000 /
+          PIN_PULSE_DURATION_S,
+        0,
+        1,
+      );
+      pinScale *= 1 + Math.sin(tapT * Math.PI) * PIN_PULSE_AMPLITUDE;
+    }
+    scaleGroup.scale.setScalar(pinScale);
 
     if (
       pin.pulse &&
@@ -528,9 +766,33 @@ function Pin({
     }
   });
 
+  const handleClick = (event: ThreeEvent<MouseEvent>) => {
+    // Nur echte Taps (kaum Pointer-Bewegung) — Drag-Gesten drehen weiterhin
+    // ausschließlich den Globus (bestehende window-Listener bleiben unberührt).
+    if (event.delta > TAP_MAX_DELTA_PX) return;
+    event.stopPropagation();
+    onTap(pin.name);
+  };
+
   return (
-    <group position={position} quaternion={quaternion}>
+    <group
+      position={position}
+      quaternion={quaternion}
+      onClick={handleClick}
+      onPointerOver={() => {
+        document.body.style.cursor = "pointer";
+      }}
+      onPointerOut={() => {
+        document.body.style.cursor = "";
+      }}
+    >
       <group ref={scaleGroupRef} scale={0}>
+        {/* Unsichtbare, größere Treffer-Kugel um den Kopf — sie skaliert mit
+            dem Reveal, ist also vor dem Aufploppen des Pins nicht tappbar.
+            three's Raycaster prüft `visible` nicht, unsichtbar reicht. */}
+        <mesh position={[0, NEEDLE_LENGTH, 0]} visible={false}>
+          <sphereGeometry args={[PIN_HIT_RADIUS, 8, 6]} />
+        </mesh>
         <mesh position={[0, NEEDLE_LENGTH / 2, 0]}>
           <cylinderGeometry
             args={[NEEDLE_RADIUS, NEEDLE_RADIUS, NEEDLE_LENGTH, 8]}
@@ -559,6 +821,16 @@ function Pin({
           </mesh>
         )}
       </group>
+      {/* Label + Herzchen außerhalb der Scale-Gruppe, damit der Tap-Puls des
+          Pins das Label nicht mitskaliert. key erzwingt pro Tap frische Seeds. */}
+      {activeTap !== null && (
+        <PinTapEffects
+          key={activeTap.startedAtMs}
+          pin={pin}
+          startedAtMs={activeTap.startedAtMs}
+          reducedMotion={reducedMotion}
+        />
+      )}
     </group>
   );
 }
@@ -595,6 +867,15 @@ export const GlobeScene = ({ index }: SectionProps) => {
   const velocityRef = useRef(0);
   /** Zeitstempel (performance.now()) der letzten Drag-Aktivität. */
   const lastDragActivityRef = useRef(0);
+
+  /** Aktiver Pin-Tap (Label + Herzchen); null, wenn nichts aufgeploppt ist. */
+  const [activeTap, setActiveTap] = useState<PinTapState | null>(null);
+
+  const handlePinTap = useCallback((name: string) => {
+    // Immutable: pro Tap ein frisches State-Objekt — erneutes Tippen auf
+    // denselben Pin startet die Effekte damit sauber neu.
+    setActiveTap({ name, startedAtMs: performance.now() });
+  }, []);
 
   useEffect(() => {
     const beginConsuming = () => {
@@ -692,6 +973,15 @@ export const GlobeScene = ({ index }: SectionProps) => {
     const vis = sectionVisibility(scroll, index);
     root.visible = vis > 0.01;
     visibleEnoughRef.current = vis > DRAG_VISIBILITY_THRESHOLD;
+
+    // Abgelaufene Tap-Effekte einmalig aufräumen — unmountet Label + Herzchen.
+    if (
+      activeTap !== null &&
+      performance.now() - activeTap.startedAtMs > TAP_EFFECT_TOTAL_S * 1000
+    ) {
+      setActiveTap(null);
+    }
+
     if (vis < VISIBILITY_EPSILON) return;
 
     const progress = sectionProgress(scroll, index);
@@ -770,7 +1060,17 @@ export const GlobeScene = ({ index }: SectionProps) => {
     <group ref={rootRef} position={[0, -0.55, 0]}>
       <group rotation={[0, 0, EARTH_AXIS_TILT]}>
         <group ref={rotationRef}>
-          <mesh>
+          <mesh
+            // R3F raycastet nur Objekte MIT Handlern — ohne diese Stopper
+            // würden Taps/Hovers durch den Globus hindurch Pins auf der
+            // Rückseite treffen. stopPropagation lässt die Kugel als
+            // Okklusions-Fläche wirken; die Drag-Listener (window) bleiben
+            // davon unberührt.
+            onClick={(event: ThreeEvent<MouseEvent>) => event.stopPropagation()}
+            onPointerOver={(event: ThreeEvent<PointerEvent>) =>
+              event.stopPropagation()
+            }
+          >
             <sphereGeometry
               args={[GLOBE_RADIUS, GLOBE_WIDTH_SEGMENTS, GLOBE_HEIGHT_SEGMENTS]}
             />
@@ -788,6 +1088,8 @@ export const GlobeScene = ({ index }: SectionProps) => {
               index={index}
               reducedMotion={reducedMotion}
               pulsePhase={i * 0.7}
+              tap={activeTap}
+              onTap={handlePinTap}
             />
           ))}
         </group>

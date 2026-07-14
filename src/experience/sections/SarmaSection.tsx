@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import type { RefObject } from "react";
 import { useFrame } from "@react-three/fiber";
+import type { ThreeEvent } from "@react-three/fiber";
 import { useScroll, RoundedBox } from "@react-three/drei";
 import * as THREE from "three";
 import { sectionProgress, sectionVisibility } from "../useSectionProgress";
@@ -17,6 +18,54 @@ const STEAM_BASE_Y = 0.28;
 const FLECK_COUNT = 8;
 /** Unterhalb dieser Sichtbarkeit lohnt sich keine Matrix-Neuberechnung mehr. */
 const VISIBILITY_EPSILON = 0.005;
+
+// --- Klick/Tipp-Interaktion: Rolle wackelt + Dampf-Wölkchen ---------------
+/** Klick nur werten, wenn sich der Pointer < 8px bewegt hat (Tap vs. Drag/Scroll). */
+const TAP_MAX_DELTA_PX = 8;
+/** Ab dieser Sichtbarkeit reagieren die Rollen auf Klick/Tipp (analog Globus-Drag). */
+const INTERACTION_VISIBILITY_THRESHOLD = 0.3;
+/** Gedämpfter Rotations-Puls der angetippten Rolle (Wackeln). */
+const WOBBLE_DURATION = 0.8;
+/** Winkelgeschwindigkeit des Wackel-Sinus (rad/s) — ca. 3,5 Schwingungen. */
+const WOBBLE_ANGULAR_SPEED = 22;
+const WOBBLE_AMPLITUDE = 0.22;
+/** Dampfstoß: kleine transparente Kugeln steigen auf und blenden per Scale aus. */
+const PUFF_RISE_DURATION = 1.1;
+const PUFF_RISE_HEIGHT = 0.55;
+/** Start-Höhe knapp über der Rollen-Oberkante (Rolle: y=0.1, Radius 0.15). */
+const PUFF_BASE_Y = 0.28;
+const PUFF_SWAY = 0.05;
+
+interface PuffSeed {
+  dx: number;
+  dz: number;
+  delay: number;
+  scale: number;
+  swayPhase: number;
+}
+
+/** Drei Wölkchen, leicht versetzt und zeitlich gestaffelt — kurzer Dampfstoß. */
+const PUFF_SEEDS: PuffSeed[] = [
+  { dx: 0, dz: 0, delay: 0, scale: 0.07, swayPhase: 0 },
+  { dx: 0.06, dz: 0.04, delay: 0.14, scale: 0.05, swayPhase: 2.1 },
+  { dx: -0.06, dz: -0.03, delay: 0.28, scale: 0.06, swayPhase: 4.2 },
+];
+const PUFF_COUNT = PUFF_SEEDS.length;
+const PUFF_TOTAL_DURATION =
+  PUFF_RISE_DURATION + Math.max(...PUFF_SEEDS.map((seed) => seed.delay));
+
+/** Laufender Wackel-Puls einer angetippten Rolle. */
+interface RollWobbleState {
+  index: number;
+  start: number;
+}
+
+/** Laufender Dampfstoß über einer angetippten Rolle. */
+interface SteamPuffState {
+  originX: number;
+  originZ: number;
+  start: number;
+}
 
 // Geschmorter Krautwickel-Ton: Basisgrün leicht Richtung gebräuntem Braun gemischt.
 const ROLL_BASE_COLOR = mixColor("#9aa465", "#7a5a35", 0.35);
@@ -143,14 +192,33 @@ function PaprikaFlecks({ rolls, count }: { rolls: RollData[]; count: number }) {
   );
 }
 
-function SarmaRolls({ rolls }: { rolls: RollData[] }) {
+function SarmaRolls({
+  rolls,
+  groupRefs,
+  onRollTap,
+  onRollPointerOver,
+  onRollPointerOut,
+}: {
+  rolls: RollData[];
+  /** Von der Szene gepflegtes Array — der useFrame-Loop wackelt darüber. */
+  groupRefs: RefObject<(THREE.Group | null)[]>;
+  onRollTap: (index: number, event: ThreeEvent<MouseEvent>) => void;
+  onRollPointerOver: () => void;
+  onRollPointerOut: () => void;
+}) {
   return (
     <>
       {rolls.map((roll, i) => (
         <group
           key={i}
+          ref={(node) => {
+            groupRefs.current[i] = node;
+          }}
           position={roll.position}
           rotation={[Math.PI / 2, roll.rotationY, roll.tilt]}
+          onClick={(event) => onRollTap(i, event)}
+          onPointerOver={onRollPointerOver}
+          onPointerOut={onRollPointerOut}
         >
           <mesh>
             <capsuleGeometry args={[0.15, 0.4, 6, 12]} />
@@ -249,13 +317,120 @@ export const SarmaScene = ({ index }: SectionProps) => {
   const rolls = useMemo(() => makeRolls(ROLL_COUNT), []);
   const shadowTexture = getSoftShadowTexture();
 
-  useFrame((_, delta) => {
+  /** Von useFrame gepflegt: reagieren die Rollen gerade auf Klick/Tipp? */
+  const visibleEnoughRef = useRef(false);
+  const rollGroupRefs = useRef<(THREE.Group | null)[]>([]);
+  /** Tap-Anfrage (Roll-Index) aus dem Event-Handler — im useFrame-Loop konsumiert. */
+  const tapRequestRef = useRef<number | null>(null);
+  const wobbleRef = useRef<RollWobbleState | null>(null);
+  const puffRef = useRef<SteamPuffState | null>(null);
+  const puffMeshRef = useRef<THREE.InstancedMesh>(null);
+  const puffDummy = useMemo(() => new THREE.Object3D(), []);
+
+  // InstancedMesh startet mit Identitäts-Matrizen (drei sichtbare Kugeln) —
+  // die Wölkchen deshalb einmalig auf Scale 0 setzen, bis ein Tap sie startet.
+  useEffect(() => {
+    const mesh = puffMeshRef.current;
+    if (!mesh) return;
+    const dummy = new THREE.Object3D();
+    dummy.scale.setScalar(0);
+    dummy.updateMatrix();
+    for (let i = 0; i < PUFF_COUNT; i += 1) {
+      mesh.setMatrixAt(i, dummy.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+  }, []);
+
+  const handleRollTap = (rollIndex: number, event: ThreeEvent<MouseEvent>) => {
+    if (!visibleEnoughRef.current) return;
+    if (event.delta > TAP_MAX_DELTA_PX) return;
+    // Nur die vorderste getroffene Rolle reagiert.
+    event.stopPropagation();
+    tapRequestRef.current = rollIndex;
+  };
+
+  const handleRollPointerOver = () => {
+    if (visibleEnoughRef.current) {
+      document.body.style.cursor = "pointer";
+    }
+  };
+
+  const handleRollPointerOut = () => {
+    document.body.style.cursor = "";
+  };
+
+  useFrame((state, delta) => {
     const root = rootRef.current;
     if (!root) return;
     const vis = sectionVisibility(scroll, index);
     root.visible = vis > 0.01;
+    visibleEnoughRef.current = vis > INTERACTION_VISIBILITY_THRESHOLD;
 
+    const t = state.clock.elapsedTime;
     const progress = sectionProgress(scroll, index);
+
+    // Tap-Anfrage konsumieren: Wackeln + Dampfstoß an der angetippten Rolle.
+    const tappedIndex = tapRequestRef.current;
+    if (tappedIndex !== null) {
+      tapRequestRef.current = null;
+      const tappedRoll = rolls[tappedIndex];
+      if (!reducedMotion) {
+        wobbleRef.current = { index: tappedIndex, start: t };
+      }
+      puffRef.current = {
+        originX: tappedRoll.position[0],
+        originZ: tappedRoll.position[2],
+        start: t,
+      };
+    }
+
+    // Rotation-Puls der angetippten Rolle: abklingender Sinus um den Basis-Tilt.
+    const wobble = wobbleRef.current;
+    if (wobble) {
+      const wobbleGroup = rollGroupRefs.current[wobble.index];
+      const baseTilt = rolls[wobble.index].tilt;
+      const elapsed = t - wobble.start;
+      if (elapsed >= WOBBLE_DURATION) {
+        if (wobbleGroup) wobbleGroup.rotation.z = baseTilt;
+        wobbleRef.current = null;
+      } else if (wobbleGroup) {
+        const decay = 1 - elapsed / WOBBLE_DURATION;
+        wobbleGroup.rotation.z =
+          baseTilt +
+          Math.sin(elapsed * WOBBLE_ANGULAR_SPEED) * WOBBLE_AMPLITUDE * decay;
+      }
+    }
+
+    // Dampfstoß: Wölkchen steigen gestaffelt auf und blenden per Scale aus
+    // (Sinus-Hüllkurve endet bei 0 — kein Aufräum-Frame nötig).
+    const puff = puffRef.current;
+    const puffMesh = puffMeshRef.current;
+    if (puff && puffMesh) {
+      const elapsed = t - puff.start;
+      PUFF_SEEDS.forEach((seed, i) => {
+        const riseT = THREE.MathUtils.clamp(
+          (elapsed - seed.delay) / PUFF_RISE_DURATION,
+          0,
+          1,
+        );
+        const riseHeight = reducedMotion ? 0 : PUFF_RISE_HEIGHT;
+        const sway = reducedMotion
+          ? 0
+          : Math.sin(riseT * Math.PI * 2 + seed.swayPhase) * PUFF_SWAY;
+        puffDummy.position.set(
+          puff.originX + seed.dx + sway,
+          PUFF_BASE_Y + riseT * riseHeight,
+          puff.originZ + seed.dz,
+        );
+        puffDummy.scale.setScalar(seed.scale * Math.sin(riseT * Math.PI));
+        puffDummy.updateMatrix();
+        puffMesh.setMatrixAt(i, puffDummy.matrix);
+      });
+      puffMesh.instanceMatrix.needsUpdate = true;
+      if (elapsed >= PUFF_TOTAL_DURATION) {
+        puffRef.current = null;
+      }
+    }
 
     const plateGroup = plateGroupRef.current;
     if (plateGroup) {
@@ -291,7 +466,7 @@ export const SarmaScene = ({ index }: SectionProps) => {
     // Deutlich zur Kamera gekippt, damit die Rollen auf dem Teller sichtbar sind
     <group
       ref={rootRef}
-      position={[0, -1.15, 0.2]}
+      position={[0, -1.0, 0.2]}
       rotation={[0.62, 0, 0]}
       scale={0.82}
     >
@@ -338,7 +513,13 @@ export const SarmaScene = ({ index }: SectionProps) => {
           <meshStandardMaterial color="#b3552e" roughness={0.35} />
         </mesh>
 
-        <SarmaRolls rolls={rolls} />
+        <SarmaRolls
+          rolls={rolls}
+          groupRefs={rollGroupRefs}
+          onRollTap={handleRollTap}
+          onRollPointerOver={handleRollPointerOver}
+          onRollPointerOut={handleRollPointerOut}
+        />
 
         <Steam
           intensityRef={intensityRef}
@@ -346,6 +527,22 @@ export const SarmaScene = ({ index }: SectionProps) => {
           scroll={scroll}
           index={index}
         />
+
+        {/* Klick-Dampfstoß: kleine Wölkchen über der angetippten Rolle —
+            gleiche weiche Optik wie der Ambient-Dampf, keine neuen Texturen */}
+        <instancedMesh
+          ref={puffMeshRef}
+          args={[undefined, undefined, PUFF_COUNT]}
+        >
+          <sphereGeometry args={[1, 8, 8]} />
+          <meshStandardMaterial
+            color="#ffffff"
+            transparent
+            opacity={0.35}
+            roughness={0.9}
+            depthWrite={false}
+          />
+        </instancedMesh>
       </group>
     </group>
   );

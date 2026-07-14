@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { useFrame } from "@react-three/fiber";
+import { useFrame, type ThreeEvent } from "@react-three/fiber";
 import { useScroll } from "@react-three/drei";
 import * as THREE from "three";
 import { sectionProgress, sectionVisibility } from "../useSectionProgress";
@@ -14,6 +14,45 @@ const CENTER_COLOR = "#e8c77d";
 const CENTER_RADIUS = 0.05;
 /** Unterhalb dieser Sichtbarkeit lohnt sich keine Matrix-Neuberechnung mehr. */
 const VISIBILITY_EPSILON = 0.005;
+
+// --- Tap-Interaktion: Klick auf eine Peonie → Blütenblätter-Puff -----------
+/** Pointer-Bewegung (px), bis zu der ein Klick als Tap gilt — gleiches
+ *  Kriterium wie die Tap/Drag-Unterscheidung beim Globus, damit
+ *  Scroll-/Drag-Gesten keinen Puff auslösen. */
+const TAP_MAX_MOVEMENT_PX = 8;
+/** Ab dieser Sichtbarkeit nehmen die Blumen Taps an (kein Klicken "im Vorbeiscrollen"). */
+const TAP_VISIBILITY_THRESHOLD = 0.3;
+/** Deckel: maximal so viele Puffs gleichzeitig — der älteste fällt raus. */
+const PUFF_MAX_ACTIVE = 3;
+/** Blütenblätter pro Puff (instanced, gleiche Optik wie FloatingPetals/AmbientLayer). */
+const PUFF_PETAL_COUNT = 14;
+const PUFF_DURATION_SECONDS = 1.1;
+/** Abwärtsbeschleunigung der Puff-Blätter (Szenen-Einheiten/s²). */
+const PUFF_GRAVITY = -1.6;
+/** Horizontale Startgeschwindigkeit: min + zufälliger Anteil. */
+const PUFF_SPEED_MIN = 0.7;
+const PUFF_SPEED_VARIANCE = 0.7;
+/** Aufwärts-Anteil der Startgeschwindigkeit — der Puff steigt erst, fällt dann. */
+const PUFF_UP_MIN = 0.5;
+const PUFF_UP_VARIANCE = 0.9;
+/** Tiefen-Streuung flacher halten als die horizontale (Blumen stehen frontal). */
+const PUFF_DEPTH_FACTOR = 0.4;
+/** Leichter Z-Versatz nach vorn, damit der Puff vor den Blütenblättern aufgeht. */
+const PUFF_Z_OFFSET = 0.15;
+const PUFF_SPIN_SPEED = 3;
+const PUFF_COLOR = "#f4a5ae";
+
+// --- Pointer-Sway: Blumen lehnen sich dezent zum Pointer --------------------
+/** Lehn-Winkel (rad) pro Szenen-Einheit horizontalem Pointer-Abstand. */
+const POINTER_LEAN_FACTOR = 0.045;
+/** Obergrenze des Lehn-Winkels (rad) — dezent, nie "umgeknickt". */
+const POINTER_LEAN_MAX = 0.11;
+/** Dämpfungsrate, mit der die Blumen dem Pointer folgen bzw. zurückfedern. */
+const POINTER_LEAN_DAMP = 2.5;
+/** Unsichtbare Fläche hinter den Blumen, die onPointerMove über die ganze Section einfängt. */
+const POINTER_PLANE_WIDTH = 12;
+const POINTER_PLANE_HEIGHT = 7;
+const POINTER_PLANE_Z = -1.2;
 
 interface FlowerSeed {
   x: number;
@@ -205,6 +244,77 @@ function writePetalLayer(
   mesh.instanceMatrix.needsUpdate = true;
 }
 
+interface PuffPetalSeed {
+  velocity: THREE.Vector3;
+  spinPhase: number;
+  size: number;
+}
+
+/** Ein aktiver Blütenblätter-Puff: Ursprung (Blütenkopf) + Start-Zeitpunkt + Partikel-Seeds. */
+interface PetalPuff {
+  origin: THREE.Vector3;
+  startTime: number;
+  seeds: readonly PuffPetalSeed[];
+}
+
+function makePetalPuff(origin: THREE.Vector3, startTime: number): PetalPuff {
+  const seeds = Array.from({ length: PUFF_PETAL_COUNT }, () => {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = PUFF_SPEED_MIN + Math.random() * PUFF_SPEED_VARIANCE;
+    return {
+      velocity: new THREE.Vector3(
+        Math.cos(angle) * speed,
+        PUFF_UP_MIN + Math.random() * PUFF_UP_VARIANCE,
+        Math.sin(angle) * speed * PUFF_DEPTH_FACTOR,
+      ),
+      spinPhase: Math.random() * Math.PI * 2,
+      size: 0.6 + Math.random() * 0.5,
+    };
+  });
+  return { origin: origin.clone(), startTime, seeds };
+}
+
+/**
+ * Schreibt die Matrizen aller Puff-Slots (ballistische Bahn: Startimpuls +
+ * Gravitation, Ausblenden über Scale). Leere Slots kollabieren auf Scale 0 —
+ * dieselbe Blütenblatt-Proportion (0.16/0.06/0.1) wie FloatingPetals/AmbientLayer.
+ */
+function writePetalPuffMatrices(
+  mesh: THREE.InstancedMesh,
+  puffs: readonly PetalPuff[],
+  now: number,
+  dummy: THREE.Object3D,
+): void {
+  for (let slot = 0; slot < PUFF_MAX_ACTIVE; slot++) {
+    const puff = puffs[slot];
+    for (let p = 0; p < PUFF_PETAL_COUNT; p++) {
+      const idx = slot * PUFF_PETAL_COUNT + p;
+      if (!puff) {
+        dummy.position.set(0, 0, 0);
+        dummy.rotation.set(0, 0, 0);
+        dummy.scale.setScalar(0);
+      } else {
+        const seed = puff.seeds[p];
+        const age = now - puff.startTime;
+        const lifeT = THREE.MathUtils.clamp(age / PUFF_DURATION_SECONDS, 0, 1);
+        dummy.position.set(
+          puff.origin.x + seed.velocity.x * age,
+          puff.origin.y +
+            seed.velocity.y * age +
+            0.5 * PUFF_GRAVITY * age * age,
+          puff.origin.z + seed.velocity.z * age,
+        );
+        dummy.rotation.set(0.3, seed.spinPhase + age * PUFF_SPIN_SPEED, 0.6);
+        const fadeSize = seed.size * (1 - lifeT);
+        dummy.scale.set(fadeSize * 0.16, fadeSize * 0.06, fadeSize * 0.1);
+      }
+      dummy.updateMatrix();
+      mesh.setMatrixAt(idx, dummy.matrix);
+    }
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+}
+
 /**
  * Rendert ALLE 16 Pfingstrosen (Stängel, Zentren, 3 Blütenblatt-Ringe) über
  * genau 5 InstancedMeshes. Bloom-in-Stagger und Wind-Sway werden pro Blume
@@ -230,6 +340,80 @@ function PeonyField({
   const outerMeshRef = useRef<THREE.InstancedMesh>(null);
   const middleMeshRef = useRef<THREE.InstancedMesh>(null);
   const innerMeshRef = useRef<THREE.InstancedMesh>(null);
+
+  // --- Tap → Blütenblätter-Puff ------------------------------------------
+  const puffMeshRef = useRef<THREE.InstancedMesh>(null);
+  const puffsRef = useRef<readonly PetalPuff[]>([]);
+  /** true = Puff-Matrizen müssen (noch) geschrieben werden. Startet true,
+   *  damit die Identity-Matrizen des frischen InstancedMesh im ersten Frame
+   *  auf Scale 0 kollabiert werden. */
+  const puffWritePendingRef = useRef(true);
+  /** Letzte bekannte clock-Zeit — die Klick-Handler laufen außerhalb von useFrame. */
+  const elapsedRef = useRef(0);
+
+  // --- Pointer-Sway ---------------------------------------------------------
+  /** Gedämpfter Lehn-Winkel pro Blume (rad), Ziel wird pro Frame neu bestimmt. */
+  const pointerLeanRef = useRef(new Float32Array(flowers.length));
+  /** Horizontale Pointer-Position in Gruppen-Koordinaten (null = Pointer weg). */
+  const pointerXRef = useRef<number | null>(null);
+  /** Allokationsfreier Scratch-Vektor für die Welt→Lokal-Umrechnung im Move-Handler. */
+  const pointerScratch = useMemo(() => new THREE.Vector3(), []);
+
+  /** Blütenblätter je Blume für das getroffene Mesh — das Gold-Zentrum hat
+   *  genau eine Instanz pro Blume, die Ringe petalCount Instanzen. */
+  const petalsPerFlowerFor = (object: THREE.Object3D): number => {
+    if (object === outerMeshRef.current) return PEONY_LAYERS[0].petalCount;
+    if (object === middleMeshRef.current) return PEONY_LAYERS[1].petalCount;
+    if (object === innerMeshRef.current) return PEONY_LAYERS[2].petalCount;
+    return 1;
+  };
+
+  const handleFlowerTap = (event: ThreeEvent<MouseEvent>) => {
+    // `event.delta` = Pixel-Distanz zwischen pointerdown und diesem Klick —
+    // nur echte Taps werten, keine Scroll-/Drag-Gesten über den Blumen.
+    if (event.delta > TAP_MAX_MOVEMENT_PX) return;
+    if (sectionVisibility(scroll, index) < TAP_VISIBILITY_THRESHOLD) return;
+    if (event.instanceId === undefined) return;
+    // Blütenblatt-Ringe überlappen sich: nur der vorderste Treffer soll zählen.
+    event.stopPropagation();
+    const flowerIndex = Math.floor(
+      event.instanceId / petalsPerFlowerFor(event.eventObject),
+    );
+    const flower = flowers[flowerIndex];
+    if (!flower) return;
+    const origin = new THREE.Vector3(
+      flower.x,
+      flower.y,
+      flower.z + PUFF_Z_OFFSET,
+    );
+    const puffs = [
+      ...puffsRef.current,
+      makePetalPuff(origin, elapsedRef.current),
+    ];
+    // Deckel: nur die jüngsten PUFF_MAX_ACTIVE Puffs behalten (immutable).
+    puffsRef.current = puffs.slice(-PUFF_MAX_ACTIVE);
+    puffWritePendingRef.current = true;
+  };
+
+  const handleFlowerPointerOver = () => {
+    if (sectionVisibility(scroll, index) >= TAP_VISIBILITY_THRESHOLD) {
+      document.body.style.cursor = "pointer";
+    }
+  };
+  const handleFlowerPointerOut = () => {
+    document.body.style.cursor = "";
+  };
+
+  const handlePointerMove = (event: ThreeEvent<PointerEvent>) => {
+    // Welt- in Gruppen-Koordinaten wandeln (die Wurzelgruppe skaliert/verschiebt);
+    // die Fänger-Ebene ist nur in z versetzt, x bleibt daher vergleichbar.
+    pointerXRef.current = event.object.worldToLocal(
+      pointerScratch.copy(event.point),
+    ).x;
+  };
+  const handlePointerLeave = () => {
+    pointerXRef.current = null;
+  };
 
   const outerGeometry = useMemo(
     () =>
@@ -299,18 +483,41 @@ function PeonyField({
     if (mountTimeRef.current === null)
       mountTimeRef.current = state.clock.elapsedTime;
     const mountElapsed = state.clock.elapsedTime - mountTimeRef.current;
+    elapsedRef.current = state.clock.elapsedTime;
     const swayIntensity = sectionProgress(scroll, index);
     const bloom = bloomRef.current;
     const sway = swayRef.current;
+    const lean = pointerLeanRef.current;
+    // Bei reduzierter Bewegung kein kontinuierliches Pointer-Folgen.
+    const pointerX = reducedMotion ? null : pointerXRef.current;
 
     flowers.forEach((flower, fi) => {
       const bloomTarget = mountElapsed > flower.delay ? 1 : 0;
       bloom[fi] = THREE.MathUtils.damp(bloom[fi], bloomTarget, 3.2, delta);
       const swayAmount = reducedMotion ? 0.008 : 0.04 + swayIntensity * 0.14;
+      // Dezentes Zum-Pointer-Lehnen: positive swayAngle schwenkt den
+      // Stängel-Fuß nach +x, die Blüte kippt optisch nach -x — daher das
+      // umgekehrte Vorzeichen (flower.x - pointerX).
+      const leanTarget =
+        pointerX === null
+          ? 0
+          : THREE.MathUtils.clamp(
+              (flower.x - pointerX) * POINTER_LEAN_FACTOR,
+              -POINTER_LEAN_MAX,
+              POINTER_LEAN_MAX,
+            );
+      lean[fi] = THREE.MathUtils.damp(
+        lean[fi],
+        leanTarget,
+        POINTER_LEAN_DAMP,
+        delta,
+      );
       sway[fi] =
         Math.sin(
           state.clock.elapsedTime * flower.swaySpeed + flower.swayPhase,
-        ) * swayAmount;
+        ) *
+          swayAmount +
+        lean[fi];
 
       const flowerScale = flower.scale * bloom[fi];
       const swayAngle = sway[fi];
@@ -365,6 +572,26 @@ function PeonyField({
 
     stemMesh.instanceMatrix.needsUpdate = true;
     centerMesh.instanceMatrix.needsUpdate = true;
+
+    // --- Blütenblätter-Puffs (Tap-Reaktion) --------------------------------
+    const puffMesh = puffMeshRef.current;
+    if (puffMesh) {
+      const now = state.clock.elapsedTime;
+      if (
+        puffsRef.current.some(
+          (puff) => now - puff.startTime >= PUFF_DURATION_SECONDS,
+        )
+      ) {
+        puffsRef.current = puffsRef.current.filter(
+          (puff) => now - puff.startTime < PUFF_DURATION_SECONDS,
+        );
+      }
+      if (puffsRef.current.length > 0 || puffWritePendingRef.current) {
+        writePetalPuffMatrices(puffMesh, puffsRef.current, now, dummy);
+        // Nach dem Verklingen aller Puffs genau einmal auf Scale 0 schreiben.
+        puffWritePendingRef.current = puffsRef.current.length > 0;
+      }
+    }
   });
 
   return (
@@ -379,6 +606,9 @@ function PeonyField({
       <instancedMesh
         ref={centerMeshRef}
         args={[undefined, undefined, flowers.length]}
+        onClick={handleFlowerTap}
+        onPointerOver={handleFlowerPointerOver}
+        onPointerOut={handleFlowerPointerOut}
       >
         <sphereGeometry args={[CENTER_RADIUS, 10, 10]} />
         <meshStandardMaterial color={CENTER_COLOR} roughness={0.5} />
@@ -386,6 +616,9 @@ function PeonyField({
       <instancedMesh
         ref={outerMeshRef}
         args={[outerGeometry, undefined, outerAngles.length]}
+        onClick={handleFlowerTap}
+        onPointerOver={handleFlowerPointerOver}
+        onPointerOut={handleFlowerPointerOut}
       >
         <meshStandardMaterial
           color={PEONY_LAYERS[0].color}
@@ -396,6 +629,9 @@ function PeonyField({
       <instancedMesh
         ref={middleMeshRef}
         args={[middleGeometry, undefined, middleAngles.length]}
+        onClick={handleFlowerTap}
+        onPointerOver={handleFlowerPointerOver}
+        onPointerOut={handleFlowerPointerOut}
       >
         <meshStandardMaterial
           color={PEONY_LAYERS[1].color}
@@ -406,6 +642,9 @@ function PeonyField({
       <instancedMesh
         ref={innerMeshRef}
         args={[innerGeometry, undefined, innerAngles.length]}
+        onClick={handleFlowerTap}
+        onPointerOver={handleFlowerPointerOver}
+        onPointerOut={handleFlowerPointerOut}
       >
         <meshStandardMaterial
           color={PEONY_LAYERS[2].color}
@@ -413,6 +652,25 @@ function PeonyField({
           side={THREE.DoubleSide}
         />
       </instancedMesh>
+      <instancedMesh
+        ref={puffMeshRef}
+        args={[undefined, undefined, PUFF_MAX_ACTIVE * PUFF_PETAL_COUNT]}
+        frustumCulled={false}
+      >
+        <sphereGeometry args={[1, 6, 6]} />
+        <meshStandardMaterial color={PUFF_COLOR} roughness={0.55} />
+      </instancedMesh>
+      {/* Unsichtbare Fänger-Ebene hinter den Blumen: liefert onPointerMove
+          über der ganzen Section für das Zum-Pointer-Lehnen. Material ist
+          unsichtbar, Raycasts treffen die Ebene trotzdem. */}
+      <mesh
+        position={[0, 0, POINTER_PLANE_Z]}
+        onPointerMove={handlePointerMove}
+        onPointerOut={handlePointerLeave}
+      >
+        <planeGeometry args={[POINTER_PLANE_WIDTH, POINTER_PLANE_HEIGHT]} />
+        <meshBasicMaterial visible={false} />
+      </mesh>
     </>
   );
 }
