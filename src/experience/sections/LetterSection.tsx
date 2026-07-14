@@ -48,11 +48,26 @@ const SHEET_BASE_TILT_Y = -0.05;
 // Down→Up-Distanz in Pixeln direkt als `event.delta`.
 const TAP_MAX_DELTA_PX = 6;
 /** Dauer des Auf-Wippens nach dem Tap; danach öffnet das bestehende Modal. */
-const BOB_DURATION_S = 0.45;
+const BOB_DURATION_S = 0.6;
 /** Wie stark der Bogen beim Wippen kurz aufskaliert. */
-const BOB_SCALE_AMPLITUDE = 0.05;
+const BOB_SCALE_AMPLITUDE = 0.09;
 /** Wie weit sich der Bogen beim Wippen zur Kamera aufkippt (rad). */
-const BOB_TILT_AMPLITUDE = 0.12;
+const BOB_TILT_AMPLITUDE = 0.22;
+
+// --- Idle-Atmen (Nachtrag Standard-Idle-Animationen): der Bogen pulsiert ---
+// minimal, auch ohne Interaktion. Der Klick-Wipp-Puls wird ADDITIV darüber
+// gelegt (die Bob-Halbwelle startet/endet bei 0) — kein Sprung am Übergang,
+// nach dem Wipp läuft das Atmen nahtlos weiter.
+/** Amplitude des Idle-Scale-Pulses (±0,6 %). */
+const BREATHE_SCALE_AMPLITUDE = 0.006;
+/** Periode (s) eines Atemzugs. */
+const BREATHE_PERIOD_SECONDS = 5;
+/** Kreisfrequenz (rad/s) des Atmens. */
+const BREATHE_FREQUENCY = (Math.PI * 2) / BREATHE_PERIOD_SECONDS;
+/** Hauch von zusätzlichem x-Tilt (rad), additiv zu SHEET_BASE_TILT_X. */
+const BREATHE_TILT_AMPLITUDE = 0.008;
+/** Phasenversatz (rad) des Tilts gegenüber dem Scale-Puls. */
+const BREATHE_TILT_PHASE = Math.PI / 3;
 
 const HEART_COUNT = 4;
 const DUST_COUNT = 10;
@@ -431,22 +446,36 @@ function FoldedLetterSheet({
     sheet.position.y = SHEET_CENTER_Y + Math.sin(t * 0.5) * 0.045;
     sheet.rotation.z = Math.sin(t * 0.33 + 1.1) * 0.02;
 
+    // Idle-Atmen: sehr kleiner Scale-Puls + Hauch von Tilt, additiv zur
+    // Basis-Neigung. Bei reduced motion friert t=0 den Bogen statisch ein.
+    const breatheScale =
+      1 + Math.sin(t * BREATHE_FREQUENCY) * BREATHE_SCALE_AMPLITUDE;
+    const breatheTiltX =
+      SHEET_BASE_TILT_X +
+      Math.sin(t * BREATHE_FREQUENCY + BREATHE_TILT_PHASE) *
+        BREATHE_TILT_AMPLITUDE;
+
     // Wipp-Puls nach Tap: eine Sinus-Halbwelle kippt den Bogen kurz zur
     // Kamera auf und lässt ihn minimal wachsen; nach Ablauf öffnet genau
-    // einmal das bestehende Brief-Modal.
+    // einmal das bestehende Brief-Modal. Der Puls liegt additiv über dem
+    // Atmen — startet und endet dadurch exakt auf der Atem-Kurve.
     const bobStartMs = bobStartMsRef.current;
-    if (bobStartMs === null) return;
+    if (bobStartMs === null) {
+      sheet.scale.setScalar(breatheScale);
+      sheet.rotation.x = breatheTiltX;
+      return;
+    }
     const bobT = (performance.now() - bobStartMs) / 1000 / BOB_DURATION_S;
     if (bobT >= 1) {
       bobStartMsRef.current = null;
-      sheet.scale.setScalar(1);
-      sheet.rotation.x = SHEET_BASE_TILT_X;
+      sheet.scale.setScalar(breatheScale);
+      sheet.rotation.x = breatheTiltX;
       onOpenLetter();
       return;
     }
     const bob = Math.sin(bobT * Math.PI);
-    sheet.scale.setScalar(1 + bob * BOB_SCALE_AMPLITUDE);
-    sheet.rotation.x = SHEET_BASE_TILT_X - bob * BOB_TILT_AMPLITUDE;
+    sheet.scale.setScalar(breatheScale + bob * BOB_SCALE_AMPLITUDE);
+    sheet.rotation.x = breatheTiltX - bob * BOB_TILT_AMPLITUDE;
   });
 
   const handleClick = (event: ThreeEvent<MouseEvent>) => {

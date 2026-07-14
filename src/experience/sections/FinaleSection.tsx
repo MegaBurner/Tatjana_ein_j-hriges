@@ -31,21 +31,21 @@ const TAP_PLANE_Z = 1.0;
 /** Deckel: maximal so viele Bursts gleichzeitig — der älteste fällt raus. */
 const HEART_BURST_MAX_ACTIVE = 3;
 /** Herzen pro Burst (instanced, geteilte Geometrie aus heartGeometry.ts). */
-const HEART_BURST_COUNT = 12;
-const HEART_BURST_DURATION_SECONDS = 1.3;
+const HEART_BURST_COUNT = 18;
+const HEART_BURST_DURATION_SECONDS = 1.6;
 /** Aufpopp-Dauer (s) zu Burst-Beginn (Scale 0 → voll). */
 const HEART_BURST_POP_SECONDS = 0.12;
 /** Abwärtsbeschleunigung der Konfetti-Herzen (lokale Einheiten/s²). */
 const HEART_BURST_GRAVITY = -2.4;
 /** Horizontale Startgeschwindigkeit: min + zufälliger Anteil. */
-const HEART_BURST_SPEED_MIN = 0.5;
+const HEART_BURST_SPEED_MIN = 0.8;
 const HEART_BURST_SPEED_VARIANCE = 0.9;
 /** Aufwärts-Anteil der Startgeschwindigkeit — Konfetti-Bogen nach oben. */
-const HEART_BURST_UP_MIN = 0.8;
-const HEART_BURST_UP_VARIANCE = 1.2;
+const HEART_BURST_UP_MIN = 1.2;
+const HEART_BURST_UP_VARIANCE = 1.6;
 /** Tiefen-Streuung flacher als die horizontale (Szene steht frontal). */
 const HEART_BURST_DEPTH_FACTOR = 0.35;
-const HEART_BURST_SCALE_MIN = 0.1;
+const HEART_BURST_SCALE_MIN = 0.13;
 const HEART_BURST_SCALE_VARIANCE = 0.09;
 /** Nur Y-Wobble statt freiem Taumeln — Herz-Silhouette bleibt frontal lesbar
  *  (gleiche Regel wie KissHearts in PenguinsSection). */

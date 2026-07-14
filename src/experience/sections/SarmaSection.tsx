@@ -25,16 +25,16 @@ const TAP_MAX_DELTA_PX = 8;
 /** Ab dieser Sichtbarkeit reagieren die Rollen auf Klick/Tipp (analog Globus-Drag). */
 const INTERACTION_VISIBILITY_THRESHOLD = 0.3;
 /** Gedämpfter Rotations-Puls der angetippten Rolle (Wackeln). */
-const WOBBLE_DURATION = 0.8;
+const WOBBLE_DURATION = 1.0;
 /** Winkelgeschwindigkeit des Wackel-Sinus (rad/s) — ca. 3,5 Schwingungen. */
 const WOBBLE_ANGULAR_SPEED = 22;
-const WOBBLE_AMPLITUDE = 0.22;
+const WOBBLE_AMPLITUDE = 0.4;
 /** Dampfstoß: kleine transparente Kugeln steigen auf und blenden per Scale aus. */
 const PUFF_RISE_DURATION = 1.1;
-const PUFF_RISE_HEIGHT = 0.55;
+const PUFF_RISE_HEIGHT = 0.8;
 /** Start-Höhe knapp über der Rollen-Oberkante (Rolle: y=0.1, Radius 0.15). */
 const PUFF_BASE_Y = 0.28;
-const PUFF_SWAY = 0.05;
+const PUFF_SWAY = 0.08;
 
 interface PuffSeed {
   dx: number;
@@ -53,6 +53,46 @@ const PUFF_SEEDS: PuffSeed[] = [
 const PUFF_COUNT = PUFF_SEEDS.length;
 const PUFF_TOTAL_DURATION =
   PUFF_RISE_DURATION + Math.max(...PUFF_SEEDS.map((seed) => seed.delay));
+
+// --- Standard-Idle: feiner Dauer-Dampf über dem Teller --------------------
+/** Deutlich langsamer als die Klick-Wölkchen (vgl. PUFF_RISE_DURATION). */
+const IDLE_STEAM_LOOP_DURATION = 3.2;
+/** Steigt etwas höher auf als die Klick-Wölkchen, dafür gemächlich. */
+const IDLE_STEAM_RISE_HEIGHT = 0.7;
+const IDLE_STEAM_SWAY = 0.06;
+
+interface IdleSteamSeed {
+  x: number;
+  z: number;
+  /** Zeitversatz innerhalb der Endlosschleife — die drei steigen gestaffelt auf. */
+  phase: number;
+  swayPhase: number;
+  scale: number;
+}
+
+/** Drei Loop-Instanzen im SELBEN Instanz-Mesh wie die Klick-Wölkchen (kein
+ *  zweites Partikelsystem). Kleinere Scales als PUFF_SEEDS: wirkt feiner und
+ *  durchsichtiger, da das geteilte Material nur eine globale Opacity hat. */
+const IDLE_STEAM_SEEDS: IdleSteamSeed[] = [
+  { x: -0.18, z: 0.12, phase: 0, swayPhase: 0.9, scale: 0.038 },
+  {
+    x: 0.22,
+    z: -0.08,
+    phase: IDLE_STEAM_LOOP_DURATION / 3,
+    swayPhase: 3.1,
+    scale: 0.032,
+  },
+  {
+    x: 0.02,
+    z: 0.2,
+    phase: (IDLE_STEAM_LOOP_DURATION * 2) / 3,
+    swayPhase: 5.2,
+    scale: 0.036,
+  },
+];
+const IDLE_STEAM_COUNT = IDLE_STEAM_SEEDS.length;
+/** Gesamtzahl der Instanzen im Puff-Mesh: Klick-Wölkchen + Idle-Dampf. */
+const PUFF_MESH_COUNT = PUFF_COUNT + IDLE_STEAM_COUNT;
 
 /** Laufender Wackel-Puls einer angetippten Rolle. */
 interface RollWobbleState {
@@ -329,15 +369,16 @@ export const SarmaScene = ({ index }: SectionProps) => {
   const puffMeshRef = useRef<THREE.InstancedMesh>(null);
   const puffDummy = useMemo(() => new THREE.Object3D(), []);
 
-  // InstancedMesh startet mit Identitäts-Matrizen (drei sichtbare Kugeln) —
-  // die Wölkchen deshalb einmalig auf Scale 0 setzen, bis ein Tap sie startet.
+  // InstancedMesh startet mit Identitäts-Matrizen (sichtbare Kugeln) — alle
+  // Instanzen (Klick-Wölkchen UND Idle-Dampf) deshalb einmalig auf Scale 0
+  // setzen, bis Tap bzw. useFrame-Loop sie animiert.
   useEffect(() => {
     const mesh = puffMeshRef.current;
     if (!mesh) return;
     const dummy = new THREE.Object3D();
     dummy.scale.setScalar(0);
     dummy.updateMatrix();
-    for (let i = 0; i < PUFF_COUNT; i += 1) {
+    for (let i = 0; i < PUFF_MESH_COUNT; i += 1) {
       mesh.setMatrixAt(i, dummy.matrix);
     }
     mesh.instanceMatrix.needsUpdate = true;
@@ -407,6 +448,7 @@ export const SarmaScene = ({ index }: SectionProps) => {
     // (Sinus-Hüllkurve endet bei 0 — kein Aufräum-Frame nötig).
     const puff = puffRef.current;
     const puffMesh = puffMeshRef.current;
+    let puffMatricesDirty = false;
     if (puff && puffMesh) {
       const elapsed = t - puff.start;
       // Index-Schleife statt forEach: keine pro Frame neu allokierte Closure.
@@ -430,10 +472,40 @@ export const SarmaScene = ({ index }: SectionProps) => {
         puffDummy.updateMatrix();
         puffMesh.setMatrixAt(i, puffDummy.matrix);
       }
-      puffMesh.instanceMatrix.needsUpdate = true;
+      puffMatricesDirty = true;
       if (elapsed >= PUFF_TOTAL_DURATION) {
         puffRef.current = null;
       }
+    }
+
+    // Standard-Idle (läuft immer, ohne Interaktion): feiner Dauer-Dampf —
+    // die zusätzlichen Instanzen im selben Mesh (Indizes ab PUFF_COUNT)
+    // steigen versetzt in Endlosschleife auf und blenden per Sinus-Hüllkurve
+    // aus. Mit `vis` skaliert (nur sichtbar = animiert, weiches Ein-/
+    // Ausblenden beim Scrollen); prefers-reduced-motion ⇒ aus (Scale bleibt
+    // 0 aus dem useEffect oben).
+    if (puffMesh && !reducedMotion && vis >= VISIBILITY_EPSILON) {
+      // Index-Schleife statt forEach: keine pro Frame neu allokierte Closure.
+      for (let i = 0; i < IDLE_STEAM_SEEDS.length; i++) {
+        const seed = IDLE_STEAM_SEEDS[i];
+        const loopT =
+          ((t + seed.phase) % IDLE_STEAM_LOOP_DURATION) /
+          IDLE_STEAM_LOOP_DURATION;
+        const sway =
+          Math.sin(loopT * Math.PI * 2 + seed.swayPhase) * IDLE_STEAM_SWAY;
+        puffDummy.position.set(
+          seed.x + sway,
+          PUFF_BASE_Y + loopT * IDLE_STEAM_RISE_HEIGHT,
+          seed.z,
+        );
+        puffDummy.scale.setScalar(seed.scale * Math.sin(loopT * Math.PI) * vis);
+        puffDummy.updateMatrix();
+        puffMesh.setMatrixAt(PUFF_COUNT + i, puffDummy.matrix);
+      }
+      puffMatricesDirty = true;
+    }
+    if (puffMesh && puffMatricesDirty) {
+      puffMesh.instanceMatrix.needsUpdate = true;
     }
 
     const plateGroup = plateGroupRef.current;
@@ -532,11 +604,13 @@ export const SarmaScene = ({ index }: SectionProps) => {
           index={index}
         />
 
-        {/* Klick-Dampfstoß: kleine Wölkchen über der angetippten Rolle —
-            gleiche weiche Optik wie der Ambient-Dampf, keine neuen Texturen */}
+        {/* Ein gemeinsames Instanz-Mesh: Indizes 0..PUFF_COUNT-1 sind die
+            Klick-Wölkchen über der angetippten Rolle, danach folgen die
+            Idle-Dauer-Dampf-Instanzen — gleiche weiche Optik wie der
+            Ambient-Dampf, keine neuen Texturen, kein zweites System */}
         <instancedMesh
           ref={puffMeshRef}
-          args={[undefined, undefined, PUFF_COUNT]}
+          args={[undefined, undefined, PUFF_MESH_COUNT]}
         >
           <sphereGeometry args={[1, 8, 8]} />
           <meshStandardMaterial

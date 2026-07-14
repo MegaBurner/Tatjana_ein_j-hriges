@@ -465,7 +465,7 @@ const PIN_HIT_RADIUS = 0.05;
 /** Dauer des Scale-Pulses am angetippten Pin. */
 const PIN_PULSE_DURATION_S = 0.5;
 /** Wie stark der Pin beim Puls kurz aufskaliert. */
-const PIN_PULSE_AMPLITUDE = 0.45;
+const PIN_PULSE_AMPLITUDE = 0.8;
 /** Gesamt-Lebensdauer des aufgeploppten Labels (inkl. Ausblenden). */
 const LABEL_LIFETIME_S = 2.6;
 /** Dauer des Pop-Ins (easeOutBack) des Labels. */
@@ -488,8 +488,8 @@ const LABEL_MAX_TEXT_WIDTH = LABEL_TEXTURE_WIDTH - 48;
 const LABEL_BACKGROUND = "#fdf6ec";
 const LABEL_TEXT_COLOR = "#4c3a44";
 /** Herzchen, die beim Tap vom Pin aufsteigen. */
-const TAP_HEART_COUNT = 3;
-const TAP_HEART_DURATION_S = 1.5;
+const TAP_HEART_COUNT = 5;
+const TAP_HEART_DURATION_S = 1.8;
 /** Zeitversatz zwischen den einzelnen Herzchen. */
 const TAP_HEART_STAGGER_S = 0.15;
 /** Aufstiegshöhe der Herzchen über dem Pin-Kopf. */

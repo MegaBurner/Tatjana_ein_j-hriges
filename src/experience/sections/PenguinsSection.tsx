@@ -29,6 +29,22 @@ const START_X = 1.75;
 const MEET_X = 0.69;
 const LEAN_ANGLE = 0.28;
 
+// --- Standard-Idle: Schunkeln + gelegentliches Zueinander-Neigen ----------
+/** Amplitude des dezenten Seite-zu-Seite-Wiegens im Stand (rad). */
+const IDLE_SWAY_AMPLITUDE = 0.04;
+/** Leicht unterschiedliche Perioden (~3s / ~3.7s) pro Pinguin — die beiden
+ *  geraten so nie in einen synchronen Takt. */
+const IDLE_SWAY_SPEED_1 = (Math.PI * 2) / 3;
+const IDLE_SWAY_SPEED_2 = (Math.PI * 2) / 3.7;
+/** Phasenversatz des rosa Pinguins — startet nicht spiegelgleich zum dunklen. */
+const IDLE_SWAY_PHASE_OFFSET = Math.PI / 2;
+/** Alle IDLE_LEAN_PERIOD Sekunden neigen sich beide kurz zueinander … */
+const IDLE_LEAN_PERIOD = 10;
+/** … für diese Dauer (Sinus-Hüllkurve 0 → 1 → 0) … */
+const IDLE_LEAN_DURATION = 1.8;
+/** … mit dieser sanften Amplitude (rad), deutlich unter LEAN_ANGLE. */
+const IDLE_LEAN_ANGLE = 0.06;
+
 // --- Klick/Tipp-Interaktion: Extra-Kuss ----------------------------------
 /** Klick nur werten, wenn sich der Pointer < 8px bewegt hat (Tap vs. Drag/Scroll). */
 const TAP_MAX_DELTA_PX = 8;
@@ -50,7 +66,7 @@ const EXTRA_KISS_RETREAT_PROGRESS = 0.12;
 /** Effektiver Progress im Kuss-Moment — sicher über KISS_THRESHOLD. */
 const EXTRA_KISS_PEAK_PROGRESS = 0.62;
 /** Zusätzlicher Schub der Herz-Intensität (>1 ⇒ größere Herzen) beim Extra-Kuss. */
-const EXTRA_KISS_HEART_BURST = 0.5;
+const EXTRA_KISS_HEART_BURST = 1.0;
 
 /** Y-Skalierung der Augen im Kuss-Kontakt — "happy eyes" als Schlitze. */
 const EYE_SLIT_SCALE = 0.15;
@@ -548,6 +564,26 @@ export const PenguinsScene = ({ index }: SectionProps) => {
     const x2 = THREE.MathUtils.lerp(START_X, MEET_X, walkT);
     const rockAmplitude = reducedMotion ? 0 : 0.12 * (1 - walkT);
 
+    // Standard-Idle (läuft immer, ohne Interaktion): dezentes Schunkeln im
+    // Stand plus gelegentliches Zueinander-Neigen. Rein ADDITIV zu
+    // Watschel-Rock und Lean und mit walkT·(1 − leanT) skaliert — blendet
+    // damit automatisch aus, solange gewatschelt wird (walkT < 1) und
+    // während JEDER Kuss-Sequenz (Scroll wie Extra-Kuss treiben leanT),
+    // sodass es nie gegen die Kuss-Pose kämpft. Nur sichtbar = animiert;
+    // prefers-reduced-motion ⇒ komplett aus.
+    const idleFade = reducedMotion || vis <= 0.01 ? 0 : walkT * (1 - leanT);
+    const idleSway1 =
+      Math.sin(t * IDLE_SWAY_SPEED_1) * IDLE_SWAY_AMPLITUDE * idleFade;
+    const idleSway2 =
+      Math.sin(t * IDLE_SWAY_SPEED_2 + IDLE_SWAY_PHASE_OFFSET) *
+      IDLE_SWAY_AMPLITUDE *
+      idleFade;
+    const idleLeanCycleT = (t % IDLE_LEAN_PERIOD) / IDLE_LEAN_DURATION;
+    const idleLean =
+      idleLeanCycleT < 1
+        ? Math.sin(idleLeanCycleT * Math.PI) * IDLE_LEAN_ANGLE * idleFade
+        : 0;
+
     const waddle1 = waddle1Ref.current;
     if (waddle1) {
       waddle1.position.x = THREE.MathUtils.damp(
@@ -556,7 +592,7 @@ export const PenguinsScene = ({ index }: SectionProps) => {
         5,
         delta,
       );
-      waddle1.rotation.z = Math.sin(t * 6.5) * rockAmplitude;
+      waddle1.rotation.z = Math.sin(t * 6.5) * rockAmplitude + idleSway1;
     }
     const waddle2 = waddle2Ref.current;
     if (waddle2) {
@@ -566,14 +602,15 @@ export const PenguinsScene = ({ index }: SectionProps) => {
         5,
         delta,
       );
-      waddle2.rotation.z = Math.sin(t * 6.5 + Math.PI) * rockAmplitude;
+      waddle2.rotation.z =
+        Math.sin(t * 6.5 + Math.PI) * rockAmplitude + idleSway2;
     }
 
     const lean1 = lean1Ref.current;
     if (lean1) {
       lean1.rotation.z = THREE.MathUtils.damp(
         lean1.rotation.z,
-        -leanT * LEAN_ANGLE,
+        -(leanT * LEAN_ANGLE + idleLean),
         5,
         delta,
       );
@@ -582,7 +619,7 @@ export const PenguinsScene = ({ index }: SectionProps) => {
     if (lean2) {
       lean2.rotation.z = THREE.MathUtils.damp(
         lean2.rotation.z,
-        leanT * LEAN_ANGLE,
+        leanT * LEAN_ANGLE + idleLean,
         5,
         delta,
       );

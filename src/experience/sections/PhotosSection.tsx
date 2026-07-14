@@ -10,6 +10,7 @@ import { useFrame, type ThreeEvent } from "@react-three/fiber";
 import { useScroll, useTexture } from "@react-three/drei";
 import * as THREE from "three";
 import { sectionVisibility } from "../useSectionProgress";
+import { usePrefersReducedMotion } from "../../three/hooks/useWebGL";
 import { getSoftShadowTexture } from "../softShadow";
 import { getBookPage, setBookPage, subscribeBookPage } from "../bookStore";
 import { markSRGB, PHOTO_URLS } from "../preloadAssets";
@@ -71,13 +72,29 @@ const TAP_MAX_MOVEMENT_PX = 8;
 const TAP_VISIBILITY_THRESHOLD = 0.3;
 /** Amplitude der gedämpften Pop-Feder: erster Ausschlag wächst auf ~106 %
  *  (0.11 · sin/exp-Peak ≈ +0.06, siehe Kurve in `OpenPage`). */
-const POP_AMPLITUDE = 0.11;
+const POP_AMPLITUDE = 0.22;
 /** Kreisfrequenz (rad/s) der Pop-Feder — erster Peak nach ~0,08 s. */
 const POP_FREQUENCY = 14;
 /** Abklingrate (1/s) der Pop-Feder — federt mit leichtem Unterschwinger zurück. */
 const POP_DECAY = 6;
 /** Nach dieser Zeit gilt der Pop als ausgeschwungen, Scale wird exakt 1. */
-const POP_DURATION_SECONDS = 0.7;
+const POP_DURATION_SECONDS = 0.9;
+
+// --- Idle-Animation (Nachtrag Standard-Idle-Animationen): das Buch schwebt/
+// atmet dezent, auch ohne Interaktion. Läuft additiv auf der Eltern-Group
+// (rootRef) — Blätter-Drehung und Klick-Zoom-Pop der Kinder bleiben unberührt.
+/** Basis-Schwebehöhe (y) des Buchs — das Idle-Schweben addiert darauf. */
+const BOOK_BASE_Y = -0.5;
+/** Amplitude (Szenen-Einheiten) der Idle-Y-Sinus-Bewegung. */
+const IDLE_FLOAT_AMPLITUDE = 0.02;
+/** Periode (s) eines Schwebe-Zyklus. */
+const IDLE_FLOAT_PERIOD_SECONDS = 4;
+/** Kreisfrequenz (rad/s) des Schwebens. */
+const IDLE_FLOAT_FREQUENCY = (Math.PI * 2) / IDLE_FLOAT_PERIOD_SECONDS;
+/** Minimales Idle-Kippen (rad) um die z-Achse (Basis-z-Rotation ist 0). */
+const IDLE_TILT_AMPLITUDE = 0.008;
+/** Phasenversatz (rad) des Kippens gegenüber der Y-Bewegung. */
+const IDLE_TILT_PHASE = Math.PI / 3;
 
 /** Dauer einer Blätter-Drehung in Sekunden — spürbar, aber nicht zäh. */
 const TURN_DURATION_SECONDS = 0.85;
@@ -468,6 +485,7 @@ function PhotoPages({ index }: { index: number }) {
 
 export const PhotosScene = ({ index }: SectionProps) => {
   const scroll = useScroll();
+  const reducedMotion = usePrefersReducedMotion();
   const rootRef = useRef<THREE.Group>(null);
   const shadowTexture = getSoftShadowTexture();
   // Buch-Fotos laden erst bei Annäherung an die Section, nicht beim App-Start
@@ -476,7 +494,7 @@ export const PhotosScene = ({ index }: SectionProps) => {
   const [nearBook, setNearBook] = useState(false);
   const nearRef = useRef(false);
 
-  useFrame(() => {
+  useFrame((state) => {
     const root = rootRef.current;
     if (!root) return;
     const vis = sectionVisibility(scroll, index);
@@ -485,10 +503,23 @@ export const PhotosScene = ({ index }: SectionProps) => {
       nearRef.current = true;
       setNearBook(true);
     }
+    // Idle-Schweben/-Atmen: nur wenn sichtbar und Motion erlaubt; bei
+    // reduced motion bleibt das Buch statisch in der JSX-Basislage.
+    if (reducedMotion || !root.visible) return;
+    const t = state.clock.elapsedTime;
+    root.position.y =
+      BOOK_BASE_Y + Math.sin(t * IDLE_FLOAT_FREQUENCY) * IDLE_FLOAT_AMPLITUDE;
+    root.rotation.z =
+      Math.sin(t * IDLE_FLOAT_FREQUENCY + IDLE_TILT_PHASE) *
+      IDLE_TILT_AMPLITUDE;
   });
 
   return (
-    <group ref={rootRef} position={[0, -0.5, 0]} rotation={[-0.3, 0.1, 0]}>
+    <group
+      ref={rootRef}
+      position={[0, BOOK_BASE_Y, 0]}
+      rotation={[-0.3, 0.1, 0]}
+    >
       {/* Weicher Kontaktschatten unter dem gesamten aufgeschlagenen Buch */}
       <mesh
         position={[0, -(PAGE_H / 2 + 0.18), -0.2]}

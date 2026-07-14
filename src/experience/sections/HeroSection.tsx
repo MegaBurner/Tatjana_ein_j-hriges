@@ -26,21 +26,21 @@ const TAP_VISIBILITY_THRESHOLD = 0.3;
 /** Deckel: maximal so viele Puffs gleichzeitig — der älteste fällt raus. */
 const PUFF_MAX_ACTIVE = 3;
 /** Blütenblätter pro Puff (instanced, gleiche Optik wie FloatingPetals/AmbientLayer). */
-const PUFF_PETAL_COUNT = 14;
-const PUFF_DURATION_SECONDS = 1.1;
+const PUFF_PETAL_COUNT = 20;
+const PUFF_DURATION_SECONDS = 1.4;
 /** Abwärtsbeschleunigung der Puff-Blätter (Szenen-Einheiten/s²). */
 const PUFF_GRAVITY = -1.6;
 /** Horizontale Startgeschwindigkeit: min + zufälliger Anteil. */
-const PUFF_SPEED_MIN = 0.7;
+const PUFF_SPEED_MIN = 1.0;
 const PUFF_SPEED_VARIANCE = 0.7;
 /** Aufwärts-Anteil der Startgeschwindigkeit — der Puff steigt erst, fällt dann. */
-const PUFF_UP_MIN = 0.5;
-const PUFF_UP_VARIANCE = 0.9;
+const PUFF_UP_MIN = 0.9;
+const PUFF_UP_VARIANCE = 1.2;
 /** Tiefen-Streuung flacher halten als die horizontale (Blumen stehen frontal). */
 const PUFF_DEPTH_FACTOR = 0.4;
 /** Leichter Z-Versatz nach vorn, damit der Puff vor den Blütenblättern aufgeht. */
 const PUFF_Z_OFFSET = 0.15;
-const PUFF_SPIN_SPEED = 3;
+const PUFF_SPIN_SPEED = 4.5;
 const PUFF_COLOR = "#f4a5ae";
 
 // --- Pointer-Sway: Blumen lehnen sich dezent zum Pointer --------------------

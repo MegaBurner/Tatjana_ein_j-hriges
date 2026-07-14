@@ -3,11 +3,17 @@ import { useFrame, useLoader, type ThreeEvent } from "@react-three/fiber";
 import { useScroll, RoundedBox } from "@react-three/drei";
 import * as THREE from "three";
 import { sectionProgress, sectionVisibility } from "../useSectionProgress";
+import { usePrefersReducedMotion } from "../../three/hooks/useWebGL";
 import type { SectionProps } from "../types";
 
 /** Unterhalb dieser Sichtbarkeit lohnt sich keine Winkel-/Matrix-Neuberechnung mehr. */
 const VISIBILITY_EPSILON = 0.005;
 const PLAY_SPEED = 1.6; // rad/s
+/** Idle-Drehgeschwindigkeit (rad/s) ohne Musik (Nachtrag Standard-Idle-
+ *  Animationen): die Platte steht nie ganz still. Fließt über denselben
+ *  `speed`-Damp in den `baseRotation`-Akkumulator wie PLAY_SPEED — Scratch-
+ *  Wobble und Player-Logik bleiben unverändert. */
+const IDLE_SPEED = 0.15; // rad/s
 const REST_ANGLE = -0.85;
 const PLAY_ANGLE = 0;
 const ARM_REST_Y = 0.06;
@@ -21,13 +27,13 @@ const TAP_MAX_MOVEMENT_PX = 8;
 /** Ab dieser Sichtbarkeit nimmt die Platte Taps an (kein Klicken "im Vorbeiscrollen"). */
 const TAP_VISIBILITY_THRESHOLD = 0.3;
 /** Dauer des Scratch-Wobbles (s), danach läuft die normale Rotation weiter. */
-const SCRATCH_DURATION_SECONDS = 0.7;
+const SCRATCH_DURATION_SECONDS = 0.9;
 /** Zusätzliche Drehgeschwindigkeit (rad/s) direkt nach dem Tap, klingt linear ab. */
-const SCRATCH_SPEED_BOOST = 7;
+const SCRATCH_SPEED_BOOST = 12;
 /** Frequenz (rad/s) des Rotations-Ruckelns während des Scratches. */
 const SCRATCH_WOBBLE_FREQUENCY = 30;
 /** Maximale Ruckel-Auslenkung (rad) zu Scratch-Beginn. */
-const SCRATCH_WOBBLE_AMPLITUDE = 0.14;
+const SCRATCH_WOBBLE_AMPLITUDE = 0.26;
 
 /** Konzentrische Rillen als Bump-Map, einmalig Canvas-generiert (siehe src/three/Vinyl3D.tsx). */
 function makeGrooveTexture(): THREE.CanvasTexture {
@@ -83,6 +89,7 @@ function Disc({
   index: number;
 }) {
   const scroll = useScroll();
+  const reducedMotion = usePrefersReducedMotion();
   const spinRef = useRef<THREE.Group>(null);
   const speed = useRef(0);
   /** Aufsummierter Basis-Drehwinkel (rad). Der Scratch-Wobble wird pro Frame
@@ -104,9 +111,12 @@ function Disc({
   useFrame((_, delta) => {
     if (sectionVisibility(scroll, index) < VISIBILITY_EPSILON) return;
     const isPlaying = audioRef.current ? !audioRef.current.paused : false;
+    // Ohne Musik dreht die Platte langsam weiter (IDLE_SPEED) statt auf 0
+    // auszulaufen; bei prefers-reduced-motion bleibt sie ohne Musik stehen.
+    const idleTargetSpeed = reducedMotion ? 0 : IDLE_SPEED;
     speed.current = THREE.MathUtils.damp(
       speed.current,
-      isPlaying ? PLAY_SPEED : 0,
+      isPlaying ? PLAY_SPEED : idleTargetSpeed,
       1.8,
       delta,
     );
