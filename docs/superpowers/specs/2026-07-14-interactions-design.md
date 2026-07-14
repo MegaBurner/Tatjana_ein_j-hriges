@@ -64,3 +64,18 @@ Brief-Herzen/Goldstaub, Globus-Idle-Rotation, Finale-Partikel. Ergänzt werden:
 
 Regeln wie oben: nur sichtbare Sections animieren (Gating), allokationsfrei
 (keine Closures/Objekte pro Frame), prefers-reduced-motion → statisch.
+
+## Nachtrag 2 (2026-07-15, beauftragt): Neue Section „Rayman & Rabbids"
+
+Neue 9. Scroll-Section zwischen Globus und Finale (PAGES 8→9). Eigene stilisierte
+Primitiven-Figuren (Fan-Hommage, keine fremden Assets): ein Rayman-artiger Held
+(lila Rumpf, schwebender Kopf, gelbe Haarbüschel, körperlose Hände/Füße) und
+2–3 Rabbid-artige weiße Hasen (Kapselkörper, lange Ohren, verrückte Augen).
+
+- Idle: Held schwebt/wippt, Hände kreisen dezent; Hasen zappeln/kippen versetzt.
+- Klick Held → Helikopter-Haare: Büschel rotieren, kurzer Schwebe-Hüpfer.
+- Klick Hase → „BWAAAH": Sprung, Ohren flattern, Schrei-Mund; Text-Sprite „BWAAAH!" ploppt.
+- HTML-Band: Kicker „Kapitel 7", Titel „Player 2", Untertitel
+  „Für alle Level, die wir noch zusammen zocken." (Texte leicht änderbar halten).
+- Technik: experience.css nth-child(9) ergänzen; SECTION_IDS/PAGES erweitern;
+  Regeln wie oben (Gating, allokationsfrei, reduced-motion, Tap-Erkennung).
