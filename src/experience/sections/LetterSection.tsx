@@ -5,6 +5,7 @@ import * as THREE from "three";
 import { sectionProgress, sectionVisibility } from "../useSectionProgress";
 import { usePrefersReducedMotion } from "../../three/hooks/useWebGL";
 import { getSoftShadowTexture } from "../softShadow";
+import { getHeartGeometry } from "../heartGeometry";
 import type { SectionProps } from "../types";
 
 type ScrollState = ReturnType<typeof useScroll>;
@@ -115,7 +116,7 @@ function makeHeartSeeds(count: number): HeartSeed[] {
     radius: 1.0 + Math.random() * 0.5,
     height: (Math.random() - 0.5) * 0.9,
     speed: 0.22 + Math.random() * 0.2,
-    scale: 0.055 + Math.random() * 0.04,
+    scale: 0.16 + Math.random() * 0.08,
     phase: Math.random() * Math.PI * 2,
   }));
 }
@@ -144,12 +145,15 @@ function FloatingHearts({
 
     seeds.forEach((seed, i) => {
       const a = seed.angle + t * seed.speed;
+      // Kein freies Taumeln — nur ein leichtes Y-Wobble (±0.4·sin), damit
+      // die Herz-Silhouette frontal lesbar bleibt.
+      const wobbleY = Math.sin(t * 0.8 + seed.phase) * 0.4;
       dummy.position.set(
         Math.cos(a) * seed.radius,
         centerY + seed.height + Math.sin(t * 0.6 + seed.phase) * 0.15,
         0.5 + Math.sin(a) * 0.4,
       );
-      dummy.rotation.set(0, t * 0.4 + seed.phase, Math.PI / 4);
+      dummy.rotation.set(0, wobbleY, 0);
       dummy.scale.setScalar(seed.scale);
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
@@ -158,9 +162,11 @@ function FloatingHearts({
   });
 
   return (
-    <instancedMesh ref={meshRef} args={[undefined, undefined, HEART_COUNT]}>
-      <octahedronGeometry args={[1, 0]} />
-      <meshStandardMaterial color="#f4a5ae" roughness={0.4} />
+    <instancedMesh
+      ref={meshRef}
+      args={[getHeartGeometry(), undefined, HEART_COUNT]}
+    >
+      <meshStandardMaterial color="#e07186" roughness={0.4} />
     </instancedMesh>
   );
 }

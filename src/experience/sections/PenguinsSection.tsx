@@ -6,6 +6,7 @@ import * as THREE from "three";
 import { sectionProgress, sectionVisibility } from "../useSectionProgress";
 import { usePrefersReducedMotion } from "../../three/hooks/useWebGL";
 import { getSoftShadowTexture } from "../softShadow";
+import { getHeartGeometry } from "../heartGeometry";
 import type { SectionProps } from "../types";
 
 // sectionVisibility's bell curve peaks at progress 0 and hard-cuts to
@@ -22,7 +23,9 @@ const START_X = 1.75;
 // PenguinBody einen X-Beitrag von ±K bezogen auf die jeweilige
 // Wurzelposition. Bei MEET_X = K treffen sich beide Schnabelspitzen exakt
 // bei Welt-X 0 (Y/Z desselben Punkts: siehe KISS_CONTACT_* unten).
-const MEET_X = 0.6;
+// Schnabelspitze lokal (0.47, 1.0, 0): R_y(∓0.32)·R_z(∓0.28)·(0.47, 1, 0)
+// → (±0.691, 0.831, 0.229); Wurzel-Y ist -0.7 ⇒ Kontakt (0, 0.13, 0.23).
+const MEET_X = 0.69;
 const LEAN_ANGLE = 0.28;
 
 /** Y-Skalierung der Augen im Kuss-Kontakt — "happy eyes" als Schlitze. */
@@ -30,9 +33,9 @@ const EYE_SLIT_SCALE = 0.15;
 
 /** Der EINE große Herz-Pop am Kontaktpunkt der Schnäbel (siehe MEET_X oben). */
 const KISS_CONTACT_X = 0;
-const KISS_CONTACT_Y = 0.16;
-const KISS_CONTACT_Z = 0.2;
-const CONTACT_HEART_SCALE = 0.16;
+const KISS_CONTACT_Y = 0.13;
+const KISS_CONTACT_Z = 0.23;
+const CONTACT_HEART_SCALE = 0.34;
 
 /** Easing mit Overshoot (easeOutBack) für den Scale-in-Pop des großen
  *  Kuss-Herzens: verlässt 0, schießt kurz über 1 hinaus, landet bei 1. */
@@ -239,22 +242,24 @@ function PenguinBody({
       <Eye facing={facing} z={0.13} activeRef={activeRef} />
       <Eye facing={facing} z={-0.13} activeRef={activeRef} />
 
-      {/* Schnabel — kleiner & niedlicher, sitzt dicht am vergrößerten Kopf */}
+      {/* Schnabel — deutlich sichtbar: Wurzel bei x=0.4, Spitze bei x=0.47,
+          ragt damit klar aus dem Gesichtsfleck heraus (dessen Front endet bei
+          x≈0.39 = 0.25 + 0.28·0.5). Die alte Version (r=0.03, l=0.08 bei
+          x=0.33) steckte komplett IM Gesichtsfleck-Mesh — "kein Schnabel". */}
       <mesh
-        position={[facing * 0.33, 1.0, 0]}
+        position={[facing * 0.4, 1.0, 0]}
         rotation={[0, 0, (facing * -Math.PI) / 2]}
       >
-        <coneGeometry args={[0.03, 0.08, 10]} />
-        <meshStandardMaterial color="#e8c77d" roughness={0.4} />
+        <coneGeometry args={[0.05, 0.14, 12]} />
+        <meshStandardMaterial color="#e8a23d" roughness={0.4} />
       </mesh>
 
       {colors.hasChestHeart && (
         <mesh
           position={[facing * 0.24, 0.56, 0.27]}
-          rotation={[0, 0, Math.PI / 4]}
-          scale={0.045}
+          scale={0.09}
+          geometry={getHeartGeometry()}
         >
-          <octahedronGeometry args={[1, 0]} />
           <meshStandardMaterial
             color="#e8c77d"
             roughness={0.35}
@@ -304,7 +309,7 @@ function makeKissHeartSeeds(count: number): KissHeartSeed[] {
     z: (Math.random() - 0.5) * 0.5,
     phase: (i / count) * HEART_LOOP_DURATION,
     driftPhase: Math.random() * Math.PI * 2,
-    scale: 0.05 + Math.random() * 0.04,
+    scale: 0.16 + Math.random() * 0.08,
   }));
 }
 
@@ -336,8 +341,11 @@ function KissHearts({
         x = seed.x + Math.sin(loopT * Math.PI * 2 + seed.driftPhase) * 0.12;
         bump = Math.sin(loopT * Math.PI);
       }
+      // Silhouette bleibt frontal lesbar: kein freies Taumeln, nur ein
+      // leichtes Y-Wobble (±0.4·sin) um die aufrechte Grundhaltung.
+      const wobbleY = Math.sin(t * 1.1 + seed.driftPhase) * 0.4;
       dummy.position.set(x, y, seed.z);
-      dummy.rotation.set(0, t * 0.5 + seed.driftPhase, Math.PI / 4);
+      dummy.rotation.set(0, wobbleY, 0);
       dummy.scale.setScalar(seed.scale * bump * active);
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
@@ -346,9 +354,11 @@ function KissHearts({
   });
 
   return (
-    <instancedMesh ref={meshRef} args={[undefined, undefined, HEART_COUNT]}>
-      <octahedronGeometry args={[1, 0]} />
-      <meshStandardMaterial color="#f4a5ae" roughness={0.4} />
+    <instancedMesh
+      ref={meshRef}
+      args={[getHeartGeometry(), undefined, HEART_COUNT]}
+    >
+      <meshStandardMaterial color="#e07186" roughness={0.4} />
     </instancedMesh>
   );
 }
@@ -361,24 +371,25 @@ function KissHearts({
  */
 function ContactHeart({ activeRef }: { activeRef: RefObject<number> }) {
   const meshRef = useRef<THREE.Mesh>(null);
+  const heartGeometry = useMemo(() => getHeartGeometry(), []);
 
   useFrame((state) => {
     const mesh = meshRef.current;
     if (!mesh) return;
     const amount = Math.max(easeOutBack(activeRef.current), 0);
     mesh.scale.setScalar(CONTACT_HEART_SCALE * amount);
-    mesh.rotation.z =
-      Math.PI / 4 +
-      Math.sin(state.clock.elapsedTime * 1.5) * 0.08 * activeRef.current;
+    // Kein freies Taumeln — nur ein leichtes Y-Wobble, damit die
+    // Herz-Silhouette der Kamera frontal zugewandt bleibt.
+    mesh.rotation.y =
+      Math.sin(state.clock.elapsedTime * 1.5) * 0.4 * activeRef.current;
   });
 
   return (
     <mesh
       ref={meshRef}
       position={[KISS_CONTACT_X, KISS_CONTACT_Y, KISS_CONTACT_Z]}
-      rotation={[0, 0, Math.PI / 4]}
+      geometry={heartGeometry}
     >
-      <octahedronGeometry args={[1, 0]} />
       <meshStandardMaterial color="#e07186" roughness={0.3} metalness={0.25} />
     </mesh>
   );

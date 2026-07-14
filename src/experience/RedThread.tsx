@@ -1,53 +1,116 @@
 import { useEffect, useMemo } from "react";
 import { useThree } from "@react-three/fiber";
 import * as THREE from "three";
+import { PAGES } from "./constants";
 
 const TUBE_RADIUS = 0.035;
-const TUBULAR_SEGMENTS = 200;
+const TUBULAR_SEGMENTS = 260;
 const RADIAL_SEGMENTS = 6;
 const THREAD_COLOR = "#e07186";
 const CURVE_TENSION = 0.4;
 
+/** Rand über der ersten / unter der letzten Section (Welt-Einheiten). */
+const EDGE_MARGIN = 1.2;
+
+/**
+ * Obere Titel-Zone jeder Section, relativ zum jeweiligen Section-Zentrum
+ * (y = -height * i, siehe Experience.tsx `Scenes`). Innerhalb dieser Zone
+ * liegen Kicker/Titel/Subtitle der HTML-Overlays (paddingTop ~9-16vh) — der
+ * Faden darf hier NICHT durch die Bildmitte laufen, sonst klebt er hinter
+ * dem Text (Lesbarkeits-Beschwerde).
+ */
+const TITLE_ZONE_TOP_OFFSET = 2.4;
+const TITLE_ZONE_BOTTOM_OFFSET = 1.0;
+/** x-Position in der Titel-Zone — > 2.2 geforderter Mindestabstand von der Mitte. */
+const TITLE_ZONE_X = 2.3;
+
+/**
+ * Wegpunkt unterhalb der Titel-Zone, seitlich an den zentral sitzenden
+ * Hero-Objekten vorbei (Objekte: x ≈ 0, |x| < 1.8 laut Section-Szenen).
+ */
+const OBJECT_WAYPOINT_OFFSET = -0.4;
+const OBJECT_WAYPOINT_X = 2.0;
+
+const TITLE_Z = -0.85;
+const OBJECT_Z = -1.25;
+const END_Z = -1.0;
+
 interface ThreadWaypoint {
   x: number;
-  /** Anteil 0..1 des gesamten Scroll-Wegs von oben (Hero) nach unten (Finale). */
-  yFraction: number;
+  y: number;
   z: number;
 }
 
-// 15 Wegpunkte, abwechselnd links/rechts an den Hauptobjekten der 7 Sections
-// vorbei (nie mittig hindurch) — Hero (Blumen), Fotobuch, Plattenspieler,
-// Briefumschlag, Pinguine/Eisscholle, Sarma-Teller, Finale-Blüte.
-const WAYPOINTS: ThreadWaypoint[] = [
-  { x: 0.6, yFraction: 0, z: -1.0 }, // Start, über der Hero-Section
-  { x: 2.1, yFraction: 0.06, z: -1.2 }, // neben den Hero-Blumen (rechts)
-  { x: -1.9, yFraction: 0.16, z: -0.8 }, // Übergang zum Fotobuch (links)
-  { x: -2.0, yFraction: 0.22, z: -1.1 }, // neben dem Fotobuch
-  { x: 2.0, yFraction: 0.31, z: -0.9 }, // Übergang zum Plattenspieler (rechts)
-  { x: 2.1, yFraction: 0.37, z: -1.3 }, // neben dem Plattenspieler
-  { x: -1.9, yFraction: 0.46, z: -0.7 }, // Übergang zum Brief (links)
-  { x: -2.0, yFraction: 0.52, z: -1.0 }, // neben dem Briefumschlag
-  { x: 2.2, yFraction: 0.61, z: -1.2 }, // Übergang zu den Pinguinen (rechts)
-  { x: 2.15, yFraction: 0.67, z: -1.4 }, // neben der Eisscholle
-  { x: -2.1, yFraction: 0.76, z: -0.8 }, // Übergang zu Sarma (links)
-  { x: -2.0, yFraction: 0.82, z: -1.1 }, // neben dem Sarma-Teller
-  { x: 1.8, yFraction: 0.91, z: -0.9 }, // Übergang zum Finale (rechts)
-  { x: 1.7, yFraction: 0.97, z: -1.3 }, // neben der Finale-Blüte
-  { x: 0.5, yFraction: 1, z: -1.0 }, // Ende, unter der Finale-Section
-];
+/** Seite (links/rechts) der Section `i` — alterniert, damit der Faden nie zweimal hintereinander auf derselben Seite verharrt. */
+function sectionSide(index: number): 1 | -1 {
+  return index % 2 === 0 ? 1 : -1;
+}
 
 /**
- * Baut die CatmullRom-Kurve für ein gegebenes viewport.height. Die Section i
+ * Baut die Wegpunkte für alle `PAGES` Sections. Pro Section liegen zwei
+ * Punkte in der oberen Titel-Zone (Ein- und Austritt, beide seitlich bei
+ * gleichem x — der Faden bleibt dort auf einer Höhe lateral) und ein Punkt
+ * daneben auf Höhe des Hero-Objekts. Die Mitte-Querung zur nächsten Section
+ * geschieht dazwischen ganz von selbst (CatmullRom-Interpolation) im freien
+ * Bereich unterhalb der Titel-Zone bzw. an der Section-Grenze — nie
+ * innerhalb einer Titel-Zone.
+ */
+function buildWaypoints(height: number): ThreadWaypoint[] {
+  const waypoints: ThreadWaypoint[] = [];
+  const lastIndex = PAGES - 1;
+
+  for (let i = 0; i < PAGES; i++) {
+    const center = -height * i;
+    const side = sectionSide(i);
+
+    // Titel-Zone: oberer Rand. Bei der ersten Section beginnt der gesamte
+    // Faden erst am globalen oberen Rand (EDGE_MARGIN), nicht am Zonen-Rand.
+    waypoints.push({
+      x: side * TITLE_ZONE_X,
+      y: i === 0 ? EDGE_MARGIN : center + TITLE_ZONE_TOP_OFFSET,
+      z: TITLE_Z,
+    });
+    // Titel-Zone: unterer Rand, gleiche x-Position — der Faden bleibt über
+    // die gesamte Zonen-Höhe seitlich, statt mittig zu queren.
+    waypoints.push({
+      x: side * TITLE_ZONE_X,
+      y: center + TITLE_ZONE_BOTTOM_OFFSET,
+      z: TITLE_Z,
+    });
+    // Neben dem Hero-Objekt, noch seitlich, aber näher an der Mitte.
+    waypoints.push({
+      x: side * OBJECT_WAYPOINT_X,
+      y: center + OBJECT_WAYPOINT_OFFSET,
+      z: OBJECT_Z,
+    });
+
+    if (i === lastIndex) {
+      // Letzte Section: Faden endet unterhalb der Finale-Szene statt an
+      // einer Section-Grenze zu queren.
+      waypoints.push({
+        x: side * 0.5,
+        y: center - EDGE_MARGIN,
+        z: END_Z,
+      });
+    }
+    // Andernfalls quert der Faden zwischen diesem Objekt-Punkt und dem
+    // Titel-Zonen-Eintritt der nächsten Section die Mitte — das passiert im
+    // freien Bereich um die Section-Grenze (y ≈ -(i + 0.5) * height), ohne
+    // expliziten Wegpunkt, ganz von selbst durch die Interpolation.
+  }
+
+  return waypoints;
+}
+
+/**
+ * Baut die CatmullRom-Kurve für ein gegebenes viewport.height. Section `i`
  * liegt im Scroll-World-Space bei y = -height * i (siehe Experience.tsx
- * `Scenes`), daher spannt der komplette Faden von y=+1 bis
- * y=-(6 * height) - 1 über alle 7 Sections.
+ * `Scenes`), daher spannt der komplette Faden von y = +EDGE_MARGIN bis
+ * y = -(PAGES - 1) * height - EDGE_MARGIN über alle Sections.
  */
 function buildThreadCurve(height: number): THREE.CatmullRomCurve3 {
-  const topY = 1;
-  const bottomY = -(6 * height) - 1;
-  const span = topY - bottomY;
-  const points = WAYPOINTS.map(
-    (wp) => new THREE.Vector3(wp.x, topY - wp.yFraction * span, wp.z),
+  const points = buildWaypoints(height).map(
+    (wp) => new THREE.Vector3(wp.x, wp.y, wp.z),
   );
   return new THREE.CatmullRomCurve3(points, false, "catmullrom", CURVE_TENSION);
 }

@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { useScroll } from "@react-three/drei";
 import * as THREE from "three";
@@ -53,6 +53,24 @@ const EUROPE_FOCUS_LON_DEG = 15;
  */
 const EUROPE_TARGET_ROTATION_Y =
   -THREE.MathUtils.degToRad(EUROPE_FOCUS_LON_DEG);
+
+// --- Drag-Rotation (Maus/Touch) -----------------------------------------
+/** Ab dieser Sichtbarkeit darf per Maus/Touch am Globus gedreht werden. */
+const DRAG_VISIBILITY_THRESHOLD = 0.3;
+/** Empfindlichkeit der Drag-Rotation um die Y-Achse (Gieren) pro Pixel. */
+const DRAG_YAW_SENSITIVITY = 0.005;
+/** Empfindlichkeit der Drag-Kippung um die X-Achse (Nicken) pro Pixel. */
+const DRAG_PITCH_SENSITIVITY = 0.003;
+/** Maximale Kippung nach oben/unten, damit der Globus nie "kopfsteht". */
+const DRAG_PITCH_CLAMP = 0.5;
+/** Wie lange nach der letzten Drag-Aktivität Idle-Drehung & Europa-Damping pausieren (ms). */
+const DRAG_IDLE_SUPPRESS_MS = 2500;
+/** Bewegung in Pixeln, ab der ein Touch-Move als Drag statt als Tap/Scroll gewertet wird. */
+const TOUCH_AXIS_DECISION_PX = 6;
+/** Dämpfungsrate, mit der die Trägheits-Geschwindigkeit nach Loslassen gegen 0 läuft. */
+const DRAG_INERTIA_DAMP = 4;
+/** Unterhalb dieser Winkelgeschwindigkeit (rad/s) gilt die Trägheit als abgeklungen. */
+const DRAG_VELOCITY_EPSILON = 0.0001;
 
 const OCEAN_TOP = "#b9c6ea";
 const OCEAN_BOTTOM = "#d6def5";
@@ -545,6 +563,20 @@ function Pin({
   );
 }
 
+/** Zustand eines aktiven Pointers während einer Drag-Geste. */
+interface DragPointerState {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  lastX: number;
+  lastY: number;
+  isTouch: boolean;
+  /** Bei Touch: ob Horizontal/Vertikal-Dominanz bereits entschieden wurde. */
+  decided: boolean;
+  /** Ob diese Geste als Globus-Drag konsumiert wird (vs. z.B. vertikales Scrollen). */
+  consuming: boolean;
+}
+
 export const GlobeScene = ({ index }: SectionProps) => {
   const scroll = useScroll();
   const reducedMotion = usePrefersReducedMotion();
@@ -552,11 +584,114 @@ export const GlobeScene = ({ index }: SectionProps) => {
   const rotationRef = useRef<THREE.Group>(null);
   const texture = getGlobeTexture();
 
+  /** Von useFrame gepflegt: darf gerade per Maus/Touch gedreht werden? */
+  const visibleEnoughRef = useRef(false);
+  /** True, während eine Drag-Geste aktiv konsumiert wird. */
+  const dragActiveRef = useRef(false);
+  const pointerStateRef = useRef<DragPointerState | null>(null);
+  /** Seit dem letzten useFrame-Tick akkumulierte Pointer-Deltas (Pixel). */
+  const pendingDeltaRef = useRef({ x: 0, y: 0 });
+  /** Gieren-Winkelgeschwindigkeit (rad/s) für die Trägheit nach Loslassen. */
+  const velocityRef = useRef(0);
+  /** Zeitstempel (performance.now()) der letzten Drag-Aktivität. */
+  const lastDragActivityRef = useRef(0);
+
+  useEffect(() => {
+    const beginConsuming = () => {
+      dragActiveRef.current = true;
+      lastDragActivityRef.current = performance.now();
+      velocityRef.current = 0;
+    };
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!visibleEnoughRef.current) return;
+      if ((event.target as HTMLElement | null)?.closest("button, a")) return;
+
+      const isTouch = event.pointerType === "touch";
+      pointerStateRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        lastX: event.clientX,
+        lastY: event.clientY,
+        isTouch,
+        // Maus/Pen: sofort konsumieren. Touch: erst nach Achsen-Entscheidung.
+        decided: !isTouch,
+        consuming: !isTouch,
+      };
+      if (!isTouch) {
+        beginConsuming();
+      }
+    };
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const state = pointerStateRef.current;
+      if (!state || state.pointerId !== event.pointerId) return;
+
+      if (state.isTouch && !state.decided) {
+        const totalDx = event.clientX - state.startX;
+        const totalDy = event.clientY - state.startY;
+        if (
+          Math.abs(totalDx) < TOUCH_AXIS_DECISION_PX &&
+          Math.abs(totalDy) < TOUCH_AXIS_DECISION_PX
+        ) {
+          state.lastX = event.clientX;
+          state.lastY = event.clientY;
+          return;
+        }
+        state.decided = true;
+        // Nur horizontal-dominante Touch-Drags konsumieren, damit vertikales
+        // Scrollen (Section-Navigation) unangetastet bleibt.
+        state.consuming = Math.abs(totalDx) > Math.abs(totalDy);
+        if (state.consuming) {
+          beginConsuming();
+        }
+      }
+
+      const deltaX = event.clientX - state.lastX;
+      const deltaY = event.clientY - state.lastY;
+      state.lastX = event.clientX;
+      state.lastY = event.clientY;
+
+      if (!state.consuming) return;
+
+      event.preventDefault();
+      pendingDeltaRef.current.x += deltaX;
+      pendingDeltaRef.current.y += deltaY;
+      lastDragActivityRef.current = performance.now();
+    };
+
+    const handlePointerEnd = (event: PointerEvent) => {
+      const state = pointerStateRef.current;
+      if (!state || state.pointerId !== event.pointerId) return;
+      if (state.consuming) {
+        lastDragActivityRef.current = performance.now();
+      }
+      pointerStateRef.current = null;
+      dragActiveRef.current = false;
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("pointermove", handlePointerMove, {
+      passive: false,
+    });
+    window.addEventListener("pointerup", handlePointerEnd);
+    window.addEventListener("pointercancel", handlePointerEnd);
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerEnd);
+      window.removeEventListener("pointercancel", handlePointerEnd);
+    };
+  }, []);
+
   useFrame((_, delta) => {
     const root = rootRef.current;
     if (!root) return;
     const vis = sectionVisibility(scroll, index);
     root.visible = vis > 0.01;
+    visibleEnoughRef.current = vis > DRAG_VISIBILITY_THRESHOLD;
     if (vis < VISIBILITY_EPSILON) return;
 
     const progress = sectionProgress(scroll, index);
@@ -567,6 +702,45 @@ export const GlobeScene = ({ index }: SectionProps) => {
 
     const rotationGroup = rotationRef.current;
     if (!rotationGroup) return;
+
+    // Akkumulierte Drag-Deltas dieses Frames konsumieren und auf die
+    // Globus-Gruppe anwenden (Gieren frei, Nicken begrenzt).
+    const pendingDelta = pendingDeltaRef.current;
+    if (pendingDelta.x !== 0 || pendingDelta.y !== 0) {
+      rotationGroup.rotation.y += pendingDelta.x * DRAG_YAW_SENSITIVITY;
+      rotationGroup.rotation.x = THREE.MathUtils.clamp(
+        rotationGroup.rotation.x + pendingDelta.y * DRAG_PITCH_SENSITIVITY,
+        -DRAG_PITCH_CLAMP,
+        DRAG_PITCH_CLAMP,
+      );
+      velocityRef.current =
+        delta > 0 ? (pendingDelta.x * DRAG_YAW_SENSITIVITY) / delta : 0;
+      pendingDelta.x = 0;
+      pendingDelta.y = 0;
+    }
+
+    const dragSuppressed =
+      performance.now() - lastDragActivityRef.current < DRAG_IDLE_SUPPRESS_MS;
+
+    if (dragSuppressed) {
+      // Während des Drags und für die Grace-Period danach: Idle-Drehung und
+      // Europa-Damping pausieren. Nur nach Loslassen (nicht während aktivem
+      // Drag) und nur ohne reduced-motion läuft die Trägheit sanft aus.
+      if (!dragActiveRef.current && !reducedMotion) {
+        if (Math.abs(velocityRef.current) > DRAG_VELOCITY_EPSILON) {
+          rotationGroup.rotation.y += velocityRef.current * delta;
+          velocityRef.current = THREE.MathUtils.damp(
+            velocityRef.current,
+            0,
+            DRAG_INERTIA_DAMP,
+            delta,
+          );
+        }
+      } else if (!dragActiveRef.current) {
+        velocityRef.current = 0;
+      }
+      return;
+    }
 
     if (progress > EUROPE_LOCK_THRESHOLD) {
       // Kürzesten Drehweg zum Ziel wählen, egal wo die Idle-Drehung stand.
