@@ -1,47 +1,14 @@
 /* Gemeinsame Styles für die HTML-Overlays der Scroll-Experience */
 
-/* top/height in % der Scroll-Html-Gruppe (Experience.tsx setzt dort
-   height:100% = Canvas-Höhe) statt in vh: bleibt exakt synchron zur
-   px-basierten drei-Translation, auch wenn 100vh ≠ Canvas-Höhe
-   (mobile URL-Leiste, Headless-Screenshots). */
+/* top/height setzt Experience.tsx (HtmlSections) inline in px aus der
+   r3f-Canvas-Höhe — derselbe Wert, mit dem drei die Gruppe verschiebt.
+   CSS-Einheiten (vh) würden headless/mobil von der Canvas-Größe abweichen. */
 .exp-section {
   position: absolute;
   left: 0;
   width: 100vw;
-  height: 100%;
   pointer-events: none; /* Interaktive Elemente re-aktivieren gezielt */
   overflow: hidden;
-}
-
-.exp-section:nth-child(1) {
-  top: 0;
-}
-.exp-section:nth-child(2) {
-  top: 100%;
-}
-.exp-section:nth-child(3) {
-  top: 200%;
-}
-.exp-section:nth-child(4) {
-  top: 300%;
-}
-.exp-section:nth-child(5) {
-  top: 400%;
-}
-.exp-section:nth-child(6) {
-  top: 500%;
-}
-.exp-section:nth-child(7) {
-  top: 600%;
-}
-.exp-section:nth-child(8) {
-  top: 700%;
-}
-.exp-section:nth-child(9) {
-  top: 800%;
-}
-.exp-section:nth-child(10) {
-  top: 900%;
 }
 
 .exp-content {

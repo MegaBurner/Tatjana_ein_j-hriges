@@ -92,6 +92,30 @@ function Scenes(props: ExperienceProps) {
   );
 }
 
+/**
+ * Positioniert die Html-Zellen in px aus der r3f-Canvas-Höhe — exakt der
+ * Wert, mit dem drei die Scroll-Html-Gruppe verschiebt (ScrollHtml:
+ * `height * (pages-1) * offset`). CSS-Einheiten (vh/%) messen dagegen den
+ * DOM-Viewport, der z. B. headless von der Canvas-Größe abweichen kann —
+ * dann driften Html und 3D pro Section auseinander.
+ */
+function HtmlSections(props: ExperienceProps) {
+  const height = useThree((s) => s.size.height);
+  return (
+    <>
+      {SECTIONS.map((section, i) => (
+        <section
+          key={section.id}
+          className="exp-section"
+          style={{ top: height * i, height }}
+        >
+          <section.Html {...props} index={i} />
+        </section>
+      ))}
+    </>
+  );
+}
+
 const Experience = (props: ExperienceProps) => {
   return (
     <Canvas
@@ -120,11 +144,7 @@ const Experience = (props: ExperienceProps) => {
               dadurch exakt synchron zur px-basierten drei-Translation, auch
               wenn 100vh ≠ Canvas-Höhe (mobile URL-Leiste, Headless-Shots). */}
           <Scroll html style={{ width: "100%", height: "100%" }}>
-            {SECTIONS.map((section, i) => (
-              <section key={section.id} className="exp-section">
-                <section.Html {...props} index={i} />
-              </section>
-            ))}
+            <HtmlSections {...props} />
           </Scroll>
         </ScrollControls>
       </Suspense>

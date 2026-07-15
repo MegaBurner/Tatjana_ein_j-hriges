@@ -83,6 +83,46 @@ function pad5(value: number): string {
   return String(Math.max(0, Math.floor(value))).padStart(5, "0");
 }
 
+/** Seed-basierter RNG (mulberry32) — für den deterministischen Sim-Modus,
+ *  damit Headless-Screenshots reproduzierbar dieselbe Hindernisfolge zeigen. */
+function makeSeededRng(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state |= 0;
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Verifikations-Konfiguration aus der URL (nur für Headless-Screenshots):
+ *   ?sim=6      — spult 6 s Spiel deterministisch vor, dann Standbild.
+ *   ?auto=1     — einfacher Auto-Spieler weicht Hindernissen aus
+ *                 (zeigt "laufendes Spiel"); ohne auto crasht er → Game Over.
+ *   ?seed=N     — Seed für die Hindernisfolge (Default 12345).
+ */
+interface SimConfig {
+  seconds: number;
+  auto: boolean;
+  seed: number;
+}
+
+function readSimConfig(): SimConfig | null {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search);
+  const sim = params.get("sim");
+  if (sim === null) return null;
+  const seconds = Number(sim);
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  return {
+    seconds: Math.min(seconds, 120),
+    auto: params.has("auto"),
+    seed: Number(params.get("seed")) || 12345,
+  };
+}
+
 export class DinoGame {
   private ctx: CanvasRenderingContext2D;
   private atlas: Atlas;
@@ -94,6 +134,9 @@ export class DinoGame {
   private elapsed = 0;
   private running = false;
   private frozen: boolean;
+  private sim: SimConfig | null;
+  /** Zufallsquelle: Math.random im Normalbetrieb, seed-basiert im Sim-Modus. */
+  private rng: () => number = Math.random;
 
   private speed = BASE_SPEED;
   private distance = 0;
@@ -148,6 +191,8 @@ export class DinoGame {
     this.frozen =
       typeof window !== "undefined" &&
       new URLSearchParams(window.location.search).has("freeze");
+    this.sim = readSimConfig();
+    if (this.sim) this.rng = makeSeededRng(this.sim.seed);
 
     this.idleFrames = frameSeq(atlas, "player/idle");
     this.runFrames = frameSeq(atlas, "player/run");
@@ -171,6 +216,15 @@ export class DinoGame {
   start(): void {
     if (this.running) return;
     this.running = true;
+    if (this.sim) {
+      this.runSimulation(this.sim);
+      // Nach der Vorspul-Simulation nur noch ein Standbild (freeze) oder
+      // ab hier normal weiterlaufen lassen.
+      if (this.frozen) {
+        this.render();
+        return;
+      }
+    }
     if (this.frozen) {
       this.render();
       return;
@@ -287,12 +341,12 @@ export class DinoGame {
     this.untilSpawn -= this.speed * dt;
     if (this.untilSpawn <= 0) {
       this.obstacles.push(
-        spawnObstacle(this.speed, Math.random, (name) => {
+        spawnObstacle(this.speed, this.rng, (name) => {
           const frame = this.atlas.frames[name];
           return frame ?? { w: 100, h: 100 };
         }),
       );
-      this.untilSpawn = spawnGap(this.speed, Math.random);
+      this.untilSpawn = spawnGap(this.speed, this.rng);
     }
     this.obstacles = this.obstacles
       .map((o) => ({ ...o, x: o.x - this.speed * dt }))
@@ -324,7 +378,9 @@ export class DinoGame {
     this.phase = "gameover";
     const finalScore = Math.floor(this.score);
     if (finalScore > this.best) {
-      this.best = submitScore(finalScore);
+      // Im Sim-Modus (Headless-Verifikation) den Rekord NICHT persistieren —
+      // sonst würde ein Screenshot-Lauf die Repo-highscore.json verändern.
+      this.best = this.sim ? finalScore : submitScore(finalScore);
       this.isNewBest = true;
       this.spawnHearts(12, VIEW_W / 2, 60);
     }
@@ -333,16 +389,64 @@ export class DinoGame {
   private spawnHearts(count: number, x: number, y: number): void {
     for (let i = 0; i < count; i++) {
       this.hearts.push({
-        x: x + (Math.random() - 0.5) * 90,
-        y: y + (Math.random() - 0.5) * 30,
-        vx: (Math.random() - 0.5) * 30,
-        vy: -40 - Math.random() * 50,
+        x: x + (this.rng() - 0.5) * 90,
+        y: y + (this.rng() - 0.5) * 30,
+        vx: (this.rng() - 0.5) * 30,
+        vy: -40 - this.rng() * 50,
         age: 0,
-        ttl: 1.4 + Math.random() * 0.8,
-        frame: Math.floor(Math.random() * this.heartFx.length),
-        scale: 0.5 + Math.random() * 0.5,
+        ttl: 1.4 + this.rng() * 0.8,
+        frame: Math.floor(this.rng() * this.heartFx.length),
+        scale: 0.5 + this.rng() * 0.5,
       });
     }
+  }
+
+  /**
+   * Spult das Spiel deterministisch `seconds` Sekunden mit festem Timestep
+   * vor (kein rAF) — nur für Headless-Verifikations-Screenshots. Mit
+   * `auto` weicht ein einfacher Regel-Spieler den Hindernissen aus (zeigt
+   * "laufendes Spiel"); ohne `auto` läuft der Spieler in das erste
+   * Hindernis und die Simulation endet im Game-Over-Zustand.
+   */
+  private runSimulation(config: SimConfig): void {
+    this.phase = "running";
+    const totalSteps = Math.floor(config.seconds / STEP);
+    for (let i = 0; i < totalSteps; i++) {
+      if (config.auto) this.autoPlay();
+      this.update(STEP);
+      if (!config.auto && this.isGameOver()) break;
+    }
+  }
+
+  private isGameOver(): boolean {
+    return this.phase === "gameover";
+  }
+
+  /** Regel-Spieler für den Sim-Modus: springt über den nächsten Kaktus /
+   *  hohen Vogel, duckt sich unter tiefe Vögel. Bewusst simpel — dient nur
+   *  dazu, für Screenshots ein plausibles Laufbild zu erzeugen. */
+  private autoPlay(): void {
+    const grounded = this.playerBottom >= GROUND_Y;
+    const next = this.obstacles
+      .filter((o) => o.x + o.w / 2 > PLAYER_X - 10)
+      .sort((a, b) => a.x - b.x)[0];
+    if (!next) {
+      if (this.isDucking) this.duckOff();
+      return;
+    }
+    const distance = next.x - PLAYER_X;
+    const lowBird =
+      next.kind === "bird" && next.bottomY > GROUND_Y - PLAYER_HITBOX.h + 20;
+    if (lowBird) {
+      // Tiefflieger: ducken, sobald er nah ist.
+      if (distance < 150 && distance > -40) this.duckOn();
+      else this.duckOff();
+      return;
+    }
+    if (this.isDucking) this.duckOff();
+    // Kaktus / hoher Vogel: rechtzeitig springen (Distanz tempoabhängig).
+    const jumpTrigger = 60 + this.speed * 0.28;
+    if (grounded && distance < jumpTrigger && distance > 0) this.jump();
   }
 
   private updateHearts(dt: number): void {
