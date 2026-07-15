@@ -237,16 +237,14 @@ export const ArcadeScene = ({ onOpenGame, index }: SectionProps) => {
   );
 };
 
-export const ArcadeHtml = ({ onOpenGame }: SectionProps) => (
+export const ArcadeHtml = () => (
   <div className="exp-content" style={{ paddingTop: "8vh" }}>
     <span className="exp-kicker">Kapitel 8</span>
     <h2 className="exp-title">Ich lauf zu dir</h2>
     <p className="exp-subtitle">
       Mein eigenes Chrome-Dino-Spiel: Ich renn los, spring über Kakteen und duck
-      mich unter Vögeln — und am Ziel stehst du und winkst.
+      mich unter Vögeln — und am Ziel stehst du und winkst. Klick auf den Laptop
+      und spiel es.
     </p>
-    <button className="exp-btn primary" onClick={onOpenGame}>
-      ▶ Spiel starten
-    </button>
   </div>
 );
