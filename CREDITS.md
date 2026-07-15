@@ -1,20 +1,24 @@
 # Credits — 3D-Modelle
 
 Die Sektion „Player 2" (`src/experience/sections/RaymanSection.tsx`) verwendet
-folgende frei lizenzierte 3D-Modelle. Alle drei stehen unter **CC0 / Public
-Domain** — eine Namensnennung ist nicht erforderlich, wir bedanken uns
-trotzdem herzlich beim Autor.
+die drei GLB-Modelle in `public/models/` (`hero.glb`, `rabbid.glb`,
+`rabbid-fallen.glb`).
 
-| Datei (`public/models/`) | Modell             | Autor                                | Quelle                            | Lizenz              |
-| ------------------------ | ------------------ | ------------------------------------ | --------------------------------- | ------------------- |
-| `hero.glb`               | Character Animated | [Quaternius](https://quaternius.com) | <https://poly.pizza/m/DgOCW9ZCRJ> | CC0 (Public Domain) |
-| `rabbid.glb`             | Rabbit             | [Quaternius](https://quaternius.com) | <https://poly.pizza/m/mKev485XTR> | CC0 (Public Domain) |
-| `rabbid-fallen.glb`      | Bunny              | [Quaternius](https://quaternius.com) | <https://poly.pizza/m/irZjWFARyl> | CC0 (Public Domain) |
+**Stand 2026-07-15:** Die Modelle wurden vom Betreiber dieser privaten
+Geschenk-Seite bereitgestellt (Fan-Modelle aus Community-Quellen, kein
+offizielles Material-Release). Rayman und die Raving Rabbids sind Figuren
+und Marken von **Ubisoft Entertainment**. Diese Seite ist eine private,
+nicht-kommerzielle Fan-Hommage und steht in keiner Verbindung zu Ubisoft;
+es werden keine Einnahmen erzielt. Auf Wunsch des Rechteinhabers werden
+die Modelle umgehend entfernt.
 
-Heruntergeladen am 2026-07-15 über [Poly Pizza](https://poly.pizza)
-(kuratierte CC0/CC-BY-Sammlung, direkte GLB-Downloads).
+Die zuvor verwendeten, vollständig frei lizenzierten Platzhalter-Figuren
+(CC0 / Public Domain, alle von [Quaternius](https://quaternius.com) über
+[Poly Pizza](https://poly.pizza)) bleiben hier zur Dokumentation vermerkt
+und können jederzeit wiederhergestellt werden:
 
-Bewusst **nicht** verwendet wurden Modelle der Original-Spielfiguren
-(Rayman/Rabbids von Ubisoft): frei auffindbare „Downloads" davon sind aus
-den Spielen extrahierte bzw. portierte Assets ohne gültige freie Lizenz.
-Die Figuren hier sind eigenständige, generische Cartoon-Charaktere.
+| Rolle               | Modell             | Quelle                            | Lizenz              |
+| ------------------- | ------------------ | --------------------------------- | ------------------- |
+| `hero.glb`          | Character Animated | <https://poly.pizza/m/DgOCW9ZCRJ> | CC0 (Public Domain) |
+| `rabbid.glb`        | Rabbit             | <https://poly.pizza/m/mKev485XTR> | CC0 (Public Domain) |
+| `rabbid-fallen.glb` | Bunny              | <https://poly.pizza/m/irZjWFARyl> | CC0 (Public Domain) |
