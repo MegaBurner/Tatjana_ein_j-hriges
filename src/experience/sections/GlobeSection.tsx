@@ -367,99 +367,66 @@ interface PinDef {
 
 const REVEAL_SPAN = 0.12;
 
-const PIN_DEFS: PinDef[] = [
+// Reihenfolge = Reveal-Reihenfolge beim Reinscrollen. Rot = schon besucht,
+// Gold = Reiseziele (fast die ganze Welt, außer Afrika), Lila = ihre
+// bedeutsamen Orte, dahin will ich sie begleiten.
+const RAW_PINS: Omit<PinDef, "revealAt">[] = [
   // Rot — da waren wir schon
+  { name: "Palermo", lat: 38.12, lon: 13.36, color: RED, pulse: true },
+  { name: "Como", lat: 45.81, lon: 9.09, color: RED, pulse: true },
+  { name: "Bratislava", lat: 48.15, lon: 17.11, color: RED, pulse: true },
+  // Gold — Reiseziele in aller Welt
+  { name: "Paris", lat: 48.86, lon: 2.35, color: GOLD, pulse: false },
+  { name: "Rom", lat: 41.9, lon: 12.5, color: GOLD, pulse: false },
+  { name: "Venedig", lat: 45.44, lon: 12.34, color: GOLD, pulse: false },
+  { name: "Barcelona", lat: 41.39, lon: 2.17, color: GOLD, pulse: false },
+  { name: "Amsterdam", lat: 52.37, lon: 4.9, color: GOLD, pulse: false },
+  { name: "Prag", lat: 50.08, lon: 14.44, color: GOLD, pulse: false },
+  { name: "Wien", lat: 48.21, lon: 16.37, color: GOLD, pulse: false },
+  { name: "London", lat: 51.51, lon: -0.13, color: GOLD, pulse: false },
+  { name: "Lissabon", lat: 38.72, lon: -9.14, color: GOLD, pulse: false },
+  { name: "Santorini", lat: 36.39, lon: 25.46, color: GOLD, pulse: false },
+  { name: "Meteora", lat: 39.72, lon: 21.63, color: GOLD, pulse: false },
+  { name: "Rila", lat: 42.13, lon: 23.34, color: GOLD, pulse: false },
+  { name: "Tbilisi", lat: 41.72, lon: 44.79, color: GOLD, pulse: false },
+  { name: "Malediven", lat: 3.2, lon: 73.22, color: GOLD, pulse: false },
+  { name: "Bali", lat: -8.34, lon: 115.09, color: GOLD, pulse: false },
+  { name: "Bangkok", lat: 13.76, lon: 100.5, color: GOLD, pulse: false },
+  { name: "Tokio", lat: 35.68, lon: 139.69, color: GOLD, pulse: false },
+  { name: "Kyoto", lat: 35.01, lon: 135.77, color: GOLD, pulse: false },
+  { name: "Seoul", lat: 37.57, lon: 126.98, color: GOLD, pulse: false },
+  { name: "Sydney", lat: -33.87, lon: 151.21, color: GOLD, pulse: false },
+  { name: "Bora Bora", lat: -16.5, lon: -151.74, color: GOLD, pulse: false },
+  { name: "New York", lat: 40.71, lon: -74.01, color: GOLD, pulse: false },
+  { name: "Los Angeles", lat: 34.05, lon: -118.24, color: GOLD, pulse: false },
+  { name: "Banff", lat: 51.18, lon: -115.57, color: GOLD, pulse: false },
   {
-    name: "Palermo",
-    lat: 38.12,
-    lon: 13.36,
-    color: RED,
-    pulse: true,
-    revealAt: 0.03,
-  },
-  {
-    name: "Como",
-    lat: 45.81,
-    lon: 9.09,
-    color: RED,
-    pulse: true,
-    revealAt: 0.08,
-  },
-  {
-    name: "Bratislava",
-    lat: 48.15,
-    lon: 17.11,
-    color: RED,
-    pulse: true,
-    revealAt: 0.13,
-  },
-  // Gold — Traumziele
-  {
-    name: "Paris",
-    lat: 48.86,
-    lon: 2.35,
+    name: "Rio de Janeiro",
+    lat: -22.91,
+    lon: -43.17,
     color: GOLD,
     pulse: false,
-    revealAt: 0.18,
   },
-  {
-    name: "Santorini",
-    lat: 36.39,
-    lon: 25.46,
-    color: GOLD,
-    pulse: false,
-    revealAt: 0.23,
-  },
-  {
-    name: "New York",
-    lat: 40.71,
-    lon: -74.01,
-    color: GOLD,
-    pulse: false,
-    revealAt: 0.28,
-  },
-  {
-    name: "Tokio",
-    lat: 35.68,
-    lon: 139.69,
-    color: GOLD,
-    pulse: false,
-    revealAt: 0.33,
-  },
+  { name: "Machu Picchu", lat: -13.16, lon: -72.54, color: GOLD, pulse: false },
+  { name: "Buenos Aires", lat: -34.6, lon: -58.38, color: GOLD, pulse: false },
   // Lila — ihre bedeutsamen Orte: sie möchte dorthin, ich will sie begleiten
-  {
-    name: "Belgrad",
-    lat: 44.8,
-    lon: 20.47,
-    color: LILA,
-    pulse: false,
-    revealAt: 0.38,
-  },
-  {
-    name: "Ostrog",
-    lat: 42.67,
-    lon: 19.03,
-    color: LILA,
-    pulse: false,
-    revealAt: 0.43,
-  },
-  {
-    name: "Hilandar",
-    lat: 40.33,
-    lon: 24.22,
-    color: LILA,
-    pulse: false,
-    revealAt: 0.48,
-  },
-  {
-    name: "Ohrid",
-    lat: 41.12,
-    lon: 20.8,
-    color: LILA,
-    pulse: false,
-    revealAt: 0.53,
-  },
+  { name: "Belgrad", lat: 44.8, lon: 20.47, color: LILA, pulse: false },
+  { name: "Ostrog", lat: 42.67, lon: 19.03, color: LILA, pulse: false },
+  { name: "Hilandar", lat: 40.33, lon: 24.22, color: LILA, pulse: false },
+  { name: "Ohrid", lat: 41.12, lon: 20.8, color: LILA, pulse: false },
 ];
+
+// revealAt gleichmäßig über den Scroll verteilt — bei vielen Pins aus dem
+// Index berechnet statt einzeln gepflegt.
+const REVEAL_START = 0.02;
+const REVEAL_END = 0.5;
+const PIN_DEFS: PinDef[] = RAW_PINS.map((pin, i) => ({
+  ...pin,
+  revealAt:
+    REVEAL_START +
+    (RAW_PINS.length > 1 ? i / (RAW_PINS.length - 1) : 0) *
+      (REVEAL_END - REVEAL_START),
+}));
 
 // Nadel & Kopf bewusst kräftig: die Pins sollen klar als Marker und als
 // antippbar lesbar sein (Runde: Globus verständlicher). Längere, dickere
@@ -1176,45 +1143,26 @@ export const GlobeScene = ({ index }: SectionProps) => {
 
 interface LegendEntry {
   color: string;
-  /** Was diese Farbe bedeutet — der Kern, der vorher fehlte. */
+  /** Kurze Bedeutung der Farbe — ohne Ortsnamen. */
   meaning: string;
-  /** Die konkreten Orte dieser Farbe (aus PIN_DEFS). */
-  places: string;
 }
 
-// Farbbedeutungen exakt aus PIN_DEFS abgeleitet (Rot = besucht, Gold =
-// Traumziele, Lila = ihre bedeutsamen Orte, dahin will ich sie begleiten).
-// Reihenfolge = Reihenfolge der Pins.
+// Nur die Farbbedeutung, keine Städte mehr (die Pins sprechen für sich).
 const LEGEND_ENTRIES: LegendEntry[] = [
-  {
-    color: RED,
-    meaning: "Wo wir schon waren",
-    places: "Palermo, Como, Bratislava",
-  },
-  {
-    color: GOLD,
-    meaning: "Wohin wir noch wollen",
-    places: "Paris, Santorini, New York, Tokio",
-  },
-  {
-    color: LILA,
-    meaning: "Deine Orte — da will ich mit dir hin",
-    places: "Belgrad, Ostrog, Hilandar, Ohrid",
-  },
+  { color: RED, meaning: "Wo wir waren" },
+  { color: GOLD, meaning: "Wohin wir wollen" },
+  { color: LILA, meaning: "Deine Orte" },
 ];
 
-function LegendRow({ color, meaning, places }: LegendEntry) {
+function LegendItem({ color, meaning }: LegendEntry) {
   return (
-    <p
+    <span
       style={{
-        display: "flex",
+        display: "inline-flex",
         alignItems: "center",
-        justifyContent: "center",
-        flexWrap: "wrap",
         gap: "0.4rem",
-        margin: 0,
         fontFamily: "var(--font-sans)",
-        fontSize: "0.85rem",
+        fontSize: "0.82rem",
         color: "var(--text-primary)",
       }}
     >
@@ -1230,9 +1178,8 @@ function LegendRow({ color, meaning, places }: LegendEntry) {
           flexShrink: 0,
         }}
       />
-      <span style={{ fontWeight: 600 }}>{meaning}</span>
-      <span style={{ opacity: 0.6 }}>{places}</span>
-    </p>
+      {meaning}
+    </span>
   );
 }
 
@@ -1240,24 +1187,26 @@ export const GlobeHtml = () => (
   <div className="exp-content" style={{ paddingTop: "9vh" }}>
     <span className="exp-kicker">Kapitel 6</span>
     <h2 className="exp-title">Unsere Welt</h2>
-    <p className="exp-subtitle">
-      Dreh am Globus und tipp die Nadeln an. Die Farbe verrät, was uns ein Ort
-      bedeutet:
-    </p>
+    {/* Legende: nebeneinander, unten unter dem Globus (absolut positioniert
+        relativ zur .exp-section). Nur Farbe + Bedeutung, keine Ortsnamen. */}
     <div
       style={{
+        position: "absolute",
+        left: 0,
+        right: 0,
+        bottom: "8%",
         display: "flex",
-        flexDirection: "column",
-        gap: "0.35rem",
-        marginTop: "0.2rem",
+        flexWrap: "wrap",
+        justifyContent: "center",
+        alignItems: "center",
+        gap: "1.4rem",
       }}
     >
       {LEGEND_ENTRIES.map((entry) => (
-        <LegendRow
+        <LegendItem
           key={entry.meaning}
           color={entry.color}
           meaning={entry.meaning}
-          places={entry.places}
         />
       ))}
     </div>
