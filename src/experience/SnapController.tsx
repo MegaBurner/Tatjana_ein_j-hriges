@@ -4,6 +4,7 @@ import { useScroll } from "@react-three/drei";
 import { usePrefersReducedMotion } from "../three/hooks/useWebGL";
 import {
   clearScrollTarget,
+  markDeepLinkJumpDone,
   peekScrollTarget,
   publishScroll,
   requestScrollTarget,
@@ -124,6 +125,7 @@ function SnapController() {
         const max = el.scrollHeight - el.clientHeight;
         if (max > 0 && frame > 1) {
           el.scrollTop = (max / SNAP_STEPS) * idx;
+          markDeepLinkJumpDone();
         } else if (frame < 600) {
           // Großzügige Deadline: Layout/Chunks können (v.a. headless oder auf
           // langsamen Geräten) deutlich mehr als 30 Frames brauchen.

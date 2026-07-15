@@ -43,6 +43,25 @@ export function requestScrollTarget(top: number): void {
   pendingScrollTarget = top;
 }
 
+/**
+ * Verifikations-Signal für ?freeze=1-Screenshots: true, sobald der
+ * ?section=N-Deep-Link-Sprung (SnapController) ausgeführt wurde — bzw.
+ * sofort, wenn die URL keinen section-Param hat. FreezeFrame in
+ * Experience.tsx hält den Render-Loop erst danach an, denn vor dem Sprung
+ * steht der Scroll-Offset auch "stabil" auf 0.
+ */
+let deepLinkJumpDone = !new URLSearchParams(window.location.search).has(
+  "section",
+);
+
+export function markDeepLinkJumpDone(): void {
+  deepLinkJumpDone = true;
+}
+
+export function isDeepLinkJumpDone(): boolean {
+  return deepLinkJumpDone;
+}
+
 export function peekScrollTarget(): number | null {
   return pendingScrollTarget;
 }
