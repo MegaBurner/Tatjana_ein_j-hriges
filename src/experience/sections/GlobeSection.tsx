@@ -93,186 +93,21 @@ const DRAG_VELOCITY_EPSILON = 0.0001;
 const OCEAN_TOP = "#b9c6ea";
 const OCEAN_BOTTOM = "#d6def5";
 const LAND_COLOR = "#f3e9d6";
+/** Radius (Textur-Pixel) der Mini-Insel unter jedem Pin — ~1,4° auf der
+ *  2048px-Textur, groß genug als sichtbare Insel, klein genug für Cartoon. */
+const ISLAND_DISC_R = 8;
 
 const RED = "#d15871";
 const GOLD = "#dfae5f";
 const LILA = "#9b8ac4";
 
+import { WORLD_LAND } from "../worldLand";
+
 type LonLat = [number, number];
 
-// --- Kontinente, handkodiert als vereinfachte [lon, lat]-Polygone ---------
-// Europa/Balkan/Russland am sorgfältigsten (3 rote Pins im Mittelmeerraum),
-// der Rest der Welt bewusst grob (nur Silhouette, keine Pins dort).
-const EUROPE_LANDMASS: LonLat[] = [
-  [-9.5, 37.0],
-  [-7.5, 43.5],
-  [-1.5, 43.4],
-  [3.0, 42.3],
-  [7.6, 43.8],
-  [10.1, 43.9],
-  [11.3, 41.8],
-  [15.9, 38.2],
-  [16.6, 39.9],
-  [18.4, 40.4],
-  [17.0, 41.3],
-  [14.6, 44.2],
-  [13.6, 45.6],
-  [16.3, 43.6],
-  [19.1, 41.8],
-  [23.5, 37.9],
-  [26.8, 39.8],
-  [29.2, 41.1],
-  [28.3, 43.6],
-  [31.5, 46.3],
-  [39.0, 51.0],
-  [35.0, 60.0],
-  [25.0, 66.0],
-  [14.0, 68.5],
-  [5.5, 61.0],
-  [5.0, 51.5],
-  [-2.0, 49.0],
-];
-const BRITAIN_IRELAND: LonLat[] = [
-  [-8.5, 51.5],
-  [-5.0, 50.0],
-  [-1.5, 50.8],
-  [1.5, 52.9],
-  [-3.0, 58.6],
-  [-6.0, 57.0],
-  [-9.0, 54.0],
-];
-/** Sizilien — eigenes Inselpolygon, damit der Palermo-Pin sicher auf Land sitzt. */
-const SICILY: LonLat[] = [
-  [12.2, 38.35],
-  [15.4, 38.25],
-  [15.6, 36.85],
-  [12.6, 37.35],
-];
-/** Santorini als winziges Inselpolygon in der Ägäis. */
-const SANTORINI_ISLAND: LonLat[] = [
-  [25.3, 36.5],
-  [25.6, 36.5],
-  [25.6, 36.28],
-  [25.3, 36.28],
-];
-const NORTH_AMERICA: LonLat[] = [
-  [-168, 66],
-  [-150, 70],
-  [-120, 72],
-  [-95, 72],
-  [-80, 65],
-  [-65, 55],
-  [-60, 47],
-  [-66, 44],
-  [-70, 41.5],
-  [-75, 35],
-  [-81, 31],
-  [-97, 26],
-  [-105, 22],
-  [-117, 32],
-  [-124, 40],
-  [-130, 50],
-  [-140, 58],
-  [-155, 60],
-];
-const SOUTH_AMERICA: LonLat[] = [
-  [-79, 9],
-  [-77, 1],
-  [-70, -18],
-  [-71, -30],
-  [-73, -45],
-  [-68, -55],
-  [-65, -52],
-  [-58, -38],
-  [-48, -25],
-  [-35, -8],
-  [-50, 0],
-  [-60, 8],
-  [-72, 10],
-];
-const AFRICA: LonLat[] = [
-  [-17, 21],
-  [-10, 30],
-  [0, 37],
-  [10, 37],
-  [20, 32],
-  [33, 31],
-  [35, 27],
-  [43, 12],
-  [51, 12],
-  [51, 2],
-  [40, -15],
-  [35, -25],
-  [20, -35],
-  [15, -22],
-  [12, -5],
-  [9, 5],
-  [-4, 5],
-  [-10, 10],
-  [-17, 15],
-];
-const ASIA: LonLat[] = [
-  [35, 45],
-  [55, 45],
-  [70, 50],
-  [90, 55],
-  [110, 55],
-  [130, 50],
-  [135, 40],
-  [122, 32],
-  [105, 22],
-  [95, 10],
-  [80, 8],
-  [68, 25],
-  [60, 25],
-  [48, 30],
-  [40, 35],
-];
-/** Japan — eigenes Inselpolygon, damit der Tokio-Pin sicher auf Land sitzt. */
-const JAPAN: LonLat[] = [
-  [130.0, 31.2],
-  [129.5, 33.9],
-  [133.0, 34.0],
-  [135.0, 34.7],
-  [138.0, 34.6],
-  [140.9, 35.3],
-  [140.9, 36.3],
-  [141.9, 39.7],
-  [141.4, 41.3],
-  [140.0, 40.5],
-  [137.5, 37.0],
-  [135.8, 35.6],
-  [132.5, 34.5],
-  [130.5, 33.0],
-];
-const AUSTRALIA: LonLat[] = [
-  [113, -22],
-  [122, -18],
-  [130, -12],
-  [137, -12],
-  [142, -11],
-  [145, -17],
-  [153, -28],
-  [150, -37],
-  [143, -39],
-  [137, -35],
-  [131, -32],
-  [122, -34],
-  [114, -30],
-];
-
-const CONTINENTS: LonLat[][] = [
-  EUROPE_LANDMASS,
-  BRITAIN_IRELAND,
-  SICILY,
-  SANTORINI_ISLAND,
-  NORTH_AMERICA,
-  SOUTH_AMERICA,
-  AFRICA,
-  ASIA,
-  JAPAN,
-  AUSTRALIA,
-];
+// Kontinente: echte, vereinfachte Land-Polygone aus Natural Earth 110m
+// (siehe ../worldLand.ts) — geografisch korrekte Silhouette, cartoonisch
+// flach gefuellt. Einzelne Insel-Pins bekommen zusaetzlich Mini-Inseln.
 
 /** Konventionelle Equirect-Projektion: lon=-180 links, lon=0 Mitte, lat=90 oben. */
 function lonLatToCanvasXY(lonDeg: number, latDeg: number): [number, number] {
@@ -337,7 +172,17 @@ function makeGlobeTexture(): THREE.CanvasTexture {
   ctx.fillRect(0, 0, TEXTURE_WIDTH, TEXTURE_HEIGHT);
 
   ctx.fillStyle = LAND_COLOR;
-  CONTINENTS.forEach((polygon) => fillLandPolygon(ctx, polygon));
+  WORLD_LAND.forEach((polygon) => fillLandPolygon(ctx, polygon));
+
+  // Mini-Inseln unter jedem Pin: garantiert, dass jeder Marker auf
+  // sichtbarem Land sitzt — auch auf winzigen Inseln (Santorini, Malediven,
+  // Bali, Bora Bora), die in der 110m-Silhouette fehlen.
+  PIN_DEFS.forEach((pin) => {
+    const [x, y] = lonLatToCanvasXY(pin.lon, pin.lat);
+    ctx.beginPath();
+    ctx.arc(x, y, ISLAND_DISC_R, 0, Math.PI * 2);
+    ctx.fill();
+  });
 
   drawGraticule(ctx);
 
