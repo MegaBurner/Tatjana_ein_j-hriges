@@ -66,8 +66,10 @@ const EUROPE_PENDULUM_AMPLITUDE = 0.15;
 const EUROPE_PENDULUM_FREQUENCY = 0.8;
 /** Dämpfungsrate, mit der Idle-Drehung/Pendel nach einem Drag wieder einblenden. */
 const IDLE_RESUME_DAMP = 1.5;
-/** Dezenter Idle-Puls aller Pin-Köpfe: ±5 % Scale, über pulsePhase versetzt. */
-const PIN_IDLE_PULSE_AMPLITUDE = 0.05;
+/** Dezenter Idle-Puls aller Pin-Köpfe: ±7 % Scale, über pulsePhase versetzt —
+ *  etwas kräftiger als zuvor, damit die Marker sichtbar „leben" und zum
+ *  Antippen einladen. */
+const PIN_IDLE_PULSE_AMPLITUDE = 0.07;
 const PIN_IDLE_PULSE_SPEED = 1.6;
 
 // --- Drag-Rotation (Maus/Touch) -----------------------------------------
@@ -424,7 +426,7 @@ const PIN_DEFS: PinDef[] = [
     pulse: false,
     revealAt: 0.33,
   },
-  // Lila — heilige Orte
+  // Lila — ihre bedeutsamen Orte: sie möchte dorthin, ich will sie begleiten
   {
     name: "Belgrad",
     lat: 44.8,
@@ -459,9 +461,15 @@ const PIN_DEFS: PinDef[] = [
   },
 ];
 
-const NEEDLE_LENGTH = 0.1;
-const NEEDLE_RADIUS = 0.007;
-const HEAD_RADIUS = 0.022;
+// Nadel & Kopf bewusst kräftig: die Pins sollen klar als Marker und als
+// antippbar lesbar sein (Runde: Globus verständlicher). Längere, dickere
+// Nadel + größerer Kopf + Glow-Halo (siehe Pin unten).
+const NEEDLE_LENGTH = 0.16;
+const NEEDLE_RADIUS = 0.011;
+const HEAD_RADIUS = 0.032;
+/** Radius des additiven Glow-Halos um jeden Pin-Kopf — macht die Marker
+ *  auffälliger und signalisiert „hier kann man tippen". */
+const HEAD_GLOW_RADIUS = HEAD_RADIUS * 1.75;
 /** Nadel-Basis liegt minimal unter dem idealen Radius, damit sie auf der
  *  low-poly-Kugel (32×24 Segmente, Flächen liegen leicht innerhalb der
  *  theoretischen Kugel) sicher ohne Spalt aufsitzt. */
@@ -821,11 +829,33 @@ function Pin({
           <cylinderGeometry
             args={[NEEDLE_RADIUS, NEEDLE_RADIUS, NEEDLE_LENGTH, 8]}
           />
-          <meshStandardMaterial color={pin.color} roughness={0.4} />
+          <meshStandardMaterial
+            color={pin.color}
+            roughness={0.4}
+            emissive={pin.color}
+            emissiveIntensity={0.25}
+          />
+        </mesh>
+        {/* Weicher additiver Glow-Halo hinter dem Kopf — hebt jeden Pin
+            vom hellen Globus ab und lässt ihn als antippbares Ziel lesen. */}
+        <mesh position={[0, NEEDLE_LENGTH, 0]}>
+          <sphereGeometry args={[HEAD_GLOW_RADIUS, 12, 10]} />
+          <meshBasicMaterial
+            color={pin.color}
+            transparent
+            opacity={0.22}
+            depthWrite={false}
+            blending={THREE.AdditiveBlending}
+          />
         </mesh>
         <mesh position={[0, NEEDLE_LENGTH, 0]}>
-          <sphereGeometry args={[HEAD_RADIUS, 12, 10]} />
-          <meshStandardMaterial color={pin.color} roughness={0.3} />
+          <sphereGeometry args={[HEAD_RADIUS, 14, 12]} />
+          <meshStandardMaterial
+            color={pin.color}
+            roughness={0.3}
+            emissive={pin.color}
+            emissiveIntensity={0.55}
+          />
         </mesh>
         {pin.pulse && (
           <mesh
@@ -1146,42 +1176,62 @@ export const GlobeScene = ({ index }: SectionProps) => {
 
 interface LegendEntry {
   color: string;
-  text: string;
+  /** Was diese Farbe bedeutet — der Kern, der vorher fehlte. */
+  meaning: string;
+  /** Die konkreten Orte dieser Farbe (aus PIN_DEFS). */
+  places: string;
 }
 
+// Farbbedeutungen exakt aus PIN_DEFS abgeleitet (Rot = besucht, Gold =
+// Traumziele, Lila = ihre bedeutsamen Orte, dahin will ich sie begleiten).
+// Reihenfolge = Reihenfolge der Pins.
 const LEGEND_ENTRIES: LegendEntry[] = [
-  { color: RED, text: "Palermo, Como, Bratislava" },
-  { color: GOLD, text: "Paris, Santorini, New York, Tokio" },
-  { color: LILA, text: "Belgrad, Ostrog, Hilandar, Ohrid" },
+  {
+    color: RED,
+    meaning: "Wo wir schon waren",
+    places: "Palermo, Como, Bratislava",
+  },
+  {
+    color: GOLD,
+    meaning: "Wohin wir noch wollen",
+    places: "Paris, Santorini, New York, Tokio",
+  },
+  {
+    color: LILA,
+    meaning: "Deine Orte — da will ich mit dir hin",
+    places: "Belgrad, Ostrog, Hilandar, Ohrid",
+  },
 ];
 
-function LegendRow({ color, text }: LegendEntry) {
+function LegendRow({ color, meaning, places }: LegendEntry) {
   return (
     <p
       style={{
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        gap: "0.5rem",
+        flexWrap: "wrap",
+        gap: "0.4rem",
         margin: 0,
         fontFamily: "var(--font-sans)",
         fontSize: "0.85rem",
         color: "var(--text-primary)",
-        opacity: 0.85,
       }}
     >
       <span
         aria-hidden="true"
         style={{
           display: "inline-block",
-          width: "10px",
-          height: "10px",
+          width: "11px",
+          height: "11px",
           borderRadius: "50%",
           backgroundColor: color,
+          boxShadow: `0 0 6px ${color}`,
           flexShrink: 0,
         }}
       />
-      {text}
+      <span style={{ fontWeight: 600 }}>{meaning}</span>
+      <span style={{ opacity: 0.6 }}>{places}</span>
     </p>
   );
 }
@@ -1191,18 +1241,24 @@ export const GlobeHtml = () => (
     <span className="exp-kicker">Kapitel 6</span>
     <h2 className="exp-title">Unsere Welt</h2>
     <p className="exp-subtitle">
-      Rot: da waren wir schon. Der Rest kommt noch.
+      Dreh am Globus und tipp die Nadeln an. Die Farbe verrät, was uns ein Ort
+      bedeutet:
     </p>
     <div
       style={{
         display: "flex",
         flexDirection: "column",
-        gap: "0.3rem",
+        gap: "0.35rem",
         marginTop: "0.2rem",
       }}
     >
       {LEGEND_ENTRIES.map((entry) => (
-        <LegendRow key={entry.text} color={entry.color} text={entry.text} />
+        <LegendRow
+          key={entry.meaning}
+          color={entry.color}
+          meaning={entry.meaning}
+          places={entry.places}
+        />
       ))}
     </div>
   </div>

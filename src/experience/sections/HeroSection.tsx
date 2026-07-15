@@ -841,9 +841,7 @@ export const HeroHtml = () => (
   <div className="exp-content" style={{ paddingTop: "16vh" }}>
     <span className="exp-kicker">Für Tatjana</span>
     <h1 className="exp-title">moja ljubavi</h1>
-    <p className="exp-subtitle">
-      Ein Jahr mit dir. Das hier ist alles für dich.
-    </p>
+    <p className="exp-subtitle">Ein Jahr mit dir. Ich hab dir was gebaut.</p>
     <div className="exp-scroll-hint">
       <span>Scroll</span>
       <span>↓</span>

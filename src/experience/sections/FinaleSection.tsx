@@ -590,7 +590,7 @@ export const FinaleHtml = () => (
       </span>
     </h2>
     <p className="exp-subtitle">
-      Das war erst das erste Jahr. Ich will alle weiteren mit dir.
+      Das war erst das erste Jahr. Und ich will jedes weitere mit dir.
     </p>
     <p className="exp-subtitle" style={{ opacity: 0.6 }}>
       dein Melihcan

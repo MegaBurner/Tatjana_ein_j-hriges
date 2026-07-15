@@ -656,8 +656,8 @@ export const LetterScene = ({ index, onOpenLetter }: SectionProps) => {
 export const LetterHtml = ({ onOpenLetter }: SectionProps) => (
   <div className="exp-content" style={{ paddingTop: "9vh" }}>
     <span className="exp-kicker">Kapitel 3</span>
-    <h2 className="exp-title">Ein Brief für dich</h2>
-    <p className="exp-subtitle">Handgeschrieben. Von mir, für dich.</p>
+    <h2 className="exp-title">Ich hab dir geschrieben</h2>
+    <p className="exp-subtitle">Von Hand. Lies ihn in Ruhe.</p>
     <button className="exp-btn primary" onClick={onOpenLetter}>
       Brief lesen
     </button>

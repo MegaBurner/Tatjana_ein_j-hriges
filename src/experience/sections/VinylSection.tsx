@@ -324,7 +324,7 @@ export const VinylHtml = ({
 }: SectionProps) => (
   <div className="exp-content" style={{ paddingTop: "9vh" }}>
     <span className="exp-kicker">Kapitel 2</span>
-    <h2 className="exp-title">Diese Songs erinnern mich an dich</h2>
+    <h2 className="exp-title">Bei diesen Songs denk ich an dich</h2>
     <p className="exp-subtitle">{currentSong.title}</p>
     <p className="exp-subtitle" style={{ opacity: 0.7, fontSize: "0.85rem" }}>
       Tausend andere auch. Die zeig ich dir bei einem Late Night Drive durch

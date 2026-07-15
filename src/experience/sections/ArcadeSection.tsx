@@ -242,9 +242,9 @@ export const ArcadeHtml = () => (
     <span className="exp-kicker">Kapitel 8</span>
     <h2 className="exp-title">Ich lauf zu dir</h2>
     <p className="exp-subtitle">
-      Mein eigenes Chrome-Dino-Spiel: Ich renn los, spring über Kakteen und duck
-      mich unter Vögeln — und am Ziel stehst du und winkst. Klick auf den Laptop
-      und spiel es.
+      Ein kleines Spiel, das ich für dich gebaut hab. Ich laufe los und komm
+      über alles hinweg, weil du am Ende auf mich wartest. Klick auf den Laptop
+      und probier's.
     </p>
   </div>
 );

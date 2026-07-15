@@ -873,7 +873,7 @@ export const SarmaHtml = () => (
     <span className="exp-kicker">Kapitel 5</span>
     <h2 className="exp-title">Sarma</h2>
     <p className="exp-subtitle">
-      Najbolja sarma. Mit dir schmeckt sie am besten.
+      Najbolja sarma. Aber mit dir schmeckt sowieso alles besser.
     </p>
   </div>
 );

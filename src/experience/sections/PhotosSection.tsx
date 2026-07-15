@@ -595,8 +595,10 @@ export const PhotosHtml = () => {
   return (
     <div className="exp-content" style={{ paddingTop: "9vh" }}>
       <span className="exp-kicker">Kapitel 1</span>
-      <h2 className="exp-title">Ein schönes Jahr mit der schönsten Person</h2>
-      <p className="exp-subtitle">Unser Jahr, Seite für Seite.</p>
+      <h2 className="exp-title">Ein Jahr mit dem schönsten Menschen</h2>
+      <p className="exp-subtitle">
+        Blätter dich durch. Jede Seite ein Moment mit dir.
+      </p>
       <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
         <button
           type="button"

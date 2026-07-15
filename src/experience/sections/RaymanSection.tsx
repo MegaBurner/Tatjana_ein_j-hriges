@@ -957,7 +957,7 @@ export const RaymanHtml = () => (
     <span className="exp-kicker">Kapitel 7</span>
     <h2 className="exp-title">Player 2</h2>
     <p className="exp-subtitle">
-      Für alle Level, die wir noch zusammen zocken.
+      Du bist mein Player 2. Für alle Level, die noch kommen.
     </p>
   </div>
 );

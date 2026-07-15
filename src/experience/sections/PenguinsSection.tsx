@@ -698,6 +698,8 @@ export const PenguinsHtml = () => (
   <div className="exp-content" style={{ paddingTop: "9vh" }}>
     <span className="exp-kicker">Kapitel 4</span>
     <h2 className="exp-title">Du &amp; ich</h2>
-    <p className="exp-subtitle">Der schwarze bin ich. Der rosa bist du.</p>
+    <p className="exp-subtitle">
+      Der schwarze bin ich, der rosa bist du. Und Pinguine bleiben zusammen.
+    </p>
   </div>
 );
