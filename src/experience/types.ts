@@ -1,4 +1,4 @@
-import type { RefObject } from 'react';
+import type { RefObject } from "react";
 
 export interface Song {
   src: string;
@@ -16,7 +16,8 @@ export interface SectionProps {
   onNextSong: () => void;
   onPrevSong: () => void;
   onOpenLetter: () => void;
+  onOpenGame: () => void;
   index: number;
 }
 
-export type ExperienceProps = Omit<SectionProps, 'index'>;
+export type ExperienceProps = Omit<SectionProps, "index">;

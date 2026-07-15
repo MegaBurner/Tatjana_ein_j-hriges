@@ -41,17 +41,18 @@ const STEP = 1 / 120;
 const MAX_FRAME_DELTA = 0.25;
 
 // Animations-Taktung (s pro Frame)
-const RUN_FRAME_TIME = 0.09;
+const RUN_FRAME_TIME = 0.13;
 const DUCK_FRAME_TIME = 0.14;
 const IDLE_FRAME_TIME = 0.35;
 const BIRD_FRAME_TIME = 0.08;
 const WAVE_FRAME_TIME = 0.28;
 const HEARTS_FRAME_TIME = 0.24;
 
-// Tatjana am rechten Rand (Hintergrund-Ebene, kein Hindernis)
+// Tatjana am rechten Rand: gleiche Bodenebene wie der Spieler, kein
+// Hindernis — Kakteen/Vögel ziehen hinter ihr vorbei.
 const LADY_X = VIEW_W - 64;
-const LADY_SCALE = 0.27;
-const LADY_BASELINE = GROUND_Y - 22;
+const LADY_SCALE = 0.3;
+const LADY_BASELINE = GROUND_Y;
 
 const GROUND_SCALE = 0.6;
 /** Oberer Teil der Bodenkachel (Felsen) wird übersprungen — nur der
@@ -361,9 +362,10 @@ export class DinoGame {
     const { ctx } = this;
     this.drawBackground(ctx);
     this.drawGround(ctx);
-    this.drawLady(ctx);
     this.drawPlayer(ctx);
     this.drawObstacles(ctx);
+    // Nach den Hindernissen: sie steht "vorne", Kakteen ziehen hinter ihr vorbei.
+    this.drawLady(ctx);
     this.drawHeartParticles(ctx);
     this.drawHud(ctx);
     if (this.phase === "ready") this.drawReadyOverlay(ctx);
@@ -405,22 +407,6 @@ export class DinoGame {
   }
 
   private drawLady(ctx: CanvasRenderingContext2D): void {
-    const tile = this.atlas.frames["ground/tile"];
-    if (tile) {
-      // Kleines Podest in der Distanz, auf dem sie steht und winkt.
-      const srcW = 260;
-      ctx.drawImage(
-        this.atlas.image,
-        tile.x + 300,
-        tile.y + GROUND_SRC_SKIP,
-        srcW,
-        tile.h - GROUND_SRC_SKIP,
-        LADY_X - 55,
-        LADY_BASELINE - 5,
-        110,
-        22,
-      );
-    }
     const frames =
       this.ladyMode === "hearts" ? this.heartsFrames : this.waveFrames;
     const frameTime =
@@ -430,8 +416,17 @@ export class DinoGame {
         ? Math.min(Math.floor(this.ladyTime / frameTime), frames.length - 1)
         : Math.floor(this.ladyTime / frameTime) % frames.length;
     const frame = frames[index];
+    // Geflippt: sie schaut nach links, dem Spieler entgegen.
     if (frame)
-      drawFrame(ctx, this.atlas, frame, LADY_X, LADY_BASELINE, LADY_SCALE);
+      drawFrame(
+        ctx,
+        this.atlas,
+        frame,
+        LADY_X,
+        LADY_BASELINE,
+        LADY_SCALE,
+        true,
+      );
   }
 
   private drawPlayer(ctx: CanvasRenderingContext2D): void {
@@ -458,7 +453,6 @@ export class DinoGame {
         ];
     }
     if (!frame) return;
-    // Quell-Frames schauen nach links — geflippt läuft er nach rechts zu ihr.
     drawFrame(
       ctx,
       this.atlas,
@@ -466,7 +460,6 @@ export class DinoGame {
       PLAYER_X,
       this.playerBottom,
       PLAYER_SCALE,
-      true,
     );
   }
 

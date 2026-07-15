@@ -10,6 +10,8 @@ const LegacyApp = lazy(() => import("./LegacyApp"));
 // Lazy: zieht framer-motion (~130 kB) erst beim ersten Öffnen des Briefs,
 // statt im kritischen Startpfad der 3D-Experience.
 const LetterModal = lazy(() => import("./components/LetterModal/LetterModal"));
+// Lazy wie das Brief-Modal: Spiel-Code + Atlas erst beim ersten Öffnen.
+const ArcadeModal = lazy(() => import("./components/ArcadeModal/ArcadeModal"));
 
 const resolvePath = (path: string) => {
   return import.meta.env.BASE_URL + path.replace(/^\//, "");
@@ -40,6 +42,10 @@ function App() {
   // ?letter=1 öffnet das Brief-Modal direkt (Sharing & Screenshot-Verifikation)
   const [letterOpen, setLetterOpen] = useState(() =>
     new URLSearchParams(window.location.search).has("letter"),
+  );
+  // ?game=1 öffnet das Arcade-Spiel direkt (Sharing & Screenshot-Verifikation)
+  const [gameOpen, setGameOpen] = useState(() =>
+    new URLSearchParams(window.location.search).has("game"),
   );
   const nextSong = () => setSongIndex((prev) => (prev + 1) % songs.length);
   const prevSong = () =>
@@ -141,6 +147,7 @@ function App() {
           onNextSong={nextSong}
           onPrevSong={prevSong}
           onOpenLetter={() => setLetterOpen(true)}
+          onOpenGame={() => setGameOpen(true)}
         />
       </Suspense>
 
@@ -157,6 +164,10 @@ function App() {
 
       <Suspense fallback={null}>
         <LetterModal isOpen={letterOpen} onClose={() => setLetterOpen(false)} />
+      </Suspense>
+
+      <Suspense fallback={null}>
+        <ArcadeModal isOpen={gameOpen} onClose={() => setGameOpen(false)} />
       </Suspense>
     </div>
   );

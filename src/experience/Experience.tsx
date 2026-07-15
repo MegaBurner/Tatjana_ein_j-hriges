@@ -115,7 +115,11 @@ const Experience = (props: ExperienceProps) => {
             <Scenes {...props} />
             <RedThread />
           </Scroll>
-          <Scroll html style={{ width: "100%" }}>
+          {/* height:100% gibt der Scroll-Html-Gruppe die Canvas-Höhe als
+              Bezugsgröße — die .exp-section-Zellen (top/height in %) bleiben
+              dadurch exakt synchron zur px-basierten drei-Translation, auch
+              wenn 100vh ≠ Canvas-Höhe (mobile URL-Leiste, Headless-Shots). */}
+          <Scroll html style={{ width: "100%", height: "100%" }}>
             {SECTIONS.map((section, i) => (
               <section key={section.id} className="exp-section">
                 <section.Html {...props} index={i} />

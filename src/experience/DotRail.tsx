@@ -15,6 +15,7 @@ const CHAPTER_LABELS: Record<SectionId, string> = {
   sarma: "Sarma",
   globe: "Welt",
   rayman: "Player 2",
+  arcade: "Spiel",
   finale: "Finale",
 };
 const CHAPTER_COUNT = SECTION_IDS.length;

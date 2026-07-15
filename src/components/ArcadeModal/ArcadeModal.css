@@ -1,0 +1,109 @@
+.arcade-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  background: rgba(24, 17, 12, 0.72);
+  backdrop-filter: blur(6px);
+}
+
+.arcade-modal-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: min(1680px, 96vw);
+  width: 100%;
+  outline: none;
+  padding: 1.1rem 1.1rem 0.9rem;
+  border-radius: 18px;
+  background: #241b14;
+  border: 1px solid rgba(232, 199, 125, 0.45);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+}
+
+.arcade-canvas {
+  width: 100%;
+  aspect-ratio: 960 / 340;
+  display: block;
+  border-radius: 10px;
+  background: #fdf6ec;
+  image-rendering: pixelated;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.arcade-modal-close {
+  position: absolute;
+  top: -0.75rem;
+  right: -0.75rem;
+  display: grid;
+  place-items: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 50%;
+  border: 1px solid rgba(232, 199, 125, 0.6);
+  background: #2f241b;
+  color: #f3e6cf;
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    background 0.15s ease;
+}
+
+.arcade-modal-close:hover {
+  transform: scale(1.08);
+  background: #3b2d21;
+}
+
+.arcade-modal-hint {
+  margin: 0;
+  text-align: center;
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  color: rgba(243, 230, 207, 0.65);
+}
+
+.arcade-modal-error {
+  margin: 2.5rem 0;
+  text-align: center;
+  color: #f3e6cf;
+}
+
+/* Touch-Steuerung nur auf Geräten ohne feine Zeiger (Handy/Tablet) */
+.arcade-touch-controls {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  .arcade-touch-controls {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: center;
+  }
+
+  .arcade-touch-controls button {
+    flex: 1;
+    max-width: 12rem;
+    padding: 0.85rem 1rem;
+    border-radius: 12px;
+    border: 1px solid rgba(232, 199, 125, 0.5);
+    background: #33281e;
+    color: #f3e6cf;
+    font-size: 1rem;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .arcade-touch-controls button:active {
+    background: #4a3a2b;
+  }
+
+  .arcade-modal-hint {
+    display: none;
+  }
+}

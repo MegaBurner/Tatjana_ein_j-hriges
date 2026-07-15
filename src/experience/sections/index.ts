@@ -8,6 +8,7 @@ import { PenguinsScene, PenguinsHtml } from "./PenguinsSection";
 import { SarmaScene, SarmaHtml } from "./SarmaSection";
 import { GlobeScene, GlobeHtml } from "./GlobeSection";
 import { RaymanScene, RaymanHtml } from "./RaymanSection";
+import { ArcadeScene, ArcadeHtml } from "./ArcadeSection";
 import { FinaleScene, FinaleHtml } from "./FinaleSection";
 
 export interface SectionDef {
@@ -27,5 +28,6 @@ export const SECTIONS: SectionDef[] = [
   { id: "sarma", Scene: SarmaScene, Html: SarmaHtml },
   { id: "globe", Scene: GlobeScene, Html: GlobeHtml },
   { id: "rayman", Scene: RaymanScene, Html: RaymanHtml },
+  { id: "arcade", Scene: ArcadeScene, Html: ArcadeHtml },
   { id: "finale", Scene: FinaleScene, Html: FinaleHtml },
 ];

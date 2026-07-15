@@ -99,13 +99,13 @@ export class AttractScreen {
       }
     }
 
-    // Er (Idle, schaut nach rechts zu ihr) und sie (winkt zurück).
+    // Er (Idle) und sie (winkt ihm entgegen, daher gespiegelt).
     const idle =
       this.idleFrames[Math.floor(t / IDLE_FRAME_TIME) % this.idleFrames.length];
-    if (idle) drawFrame(ctx, atlas, idle, 210, GROUND_Y, 0.34, true);
+    if (idle) drawFrame(ctx, atlas, idle, 210, GROUND_Y, 0.34);
     const wave =
       this.waveFrames[Math.floor(t / WAVE_FRAME_TIME) % this.waveFrames.length];
-    if (wave) drawFrame(ctx, atlas, wave, VIEW_W - 210, GROUND_Y, 0.32);
+    if (wave) drawFrame(ctx, atlas, wave, VIEW_W - 210, GROUND_Y, 0.32, true);
 
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
