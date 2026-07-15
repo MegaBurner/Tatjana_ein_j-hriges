@@ -33,15 +33,14 @@ const TAP_MAX_DELTA_PX = 8;
 const INTERACTION_VISIBILITY_THRESHOLD = 0.3;
 
 // --- Modell-Maße -------------------------------------------------------------
-// Rest-Pose-Höhen der GLBs (offline aus den Vertex-Daten vermessen). Die
-// Skalen normieren die Figuren auf die Größen der früheren Primitiven-
-// Komposition, damit Positionen/Schatten/Sprites unverändert passen.
-/** Held (hero.glb): 2,82 Einheiten hoch → ~1,5 lokale Einheiten. */
-const HERO_MODEL_SCALE = 1.5 / 2.82;
-/** Stehender Hase (rabbid.glb): 4,0 Einheiten hoch (inkl. Ohren) → ~1,2. */
-const RABBID_MODEL_SCALE = 1.2 / 4.0;
-/** Umgekippter Hase (rabbid-fallen.glb): 3,44 Einheiten hoch → ~1,2. */
-const FALLEN_MODEL_SCALE = 1.2 / 3.44;
+// Ziel-Höhen der Figuren in der Komposition. Die tatsächliche Skala und die
+// Bodenlage werden zur Laufzeit per Bounding-Box aus dem geladenen GLB
+// berechnet (Auto-Fit in useFigureModel) — dadurch funktionieren auch
+// ausgetauschte Modelle in public/models/ ohne Code-Anpassung.
+/** Held (hero.glb): Zielhöhe in lokalen Einheiten. */
+const HERO_TARGET_HEIGHT = 1.5;
+/** Hasen (rabbid.glb / rabbid-fallen.glb): Zielhöhe inkl. Ohren. */
+const RABBID_TARGET_HEIGHT = 1.2;
 
 // --- Held: Idle ------------------------------------------------------------
 /** Sinus-Schweben des Helden: ±Amplitude über eine Periode von ~3s. */
@@ -69,9 +68,6 @@ const KICK_ENVELOPE_OMEGA = 0.9;
 const KICK_ENVELOPE_POWER = 8;
 const KICK_SHAKE_SPEED = 18;
 const KICK_BODY_SHAKE = 0.05;
-/** Liege-Höhe des Umgekippten: hebt die tiefste Vertex-Position nach der
- *  Rücklage-Rotation exakt auf den Boden (offline vermessen). */
-const FALLEN_BODY_Y = 0.18;
 /** Rücklage des Umgekippten (fast flach, Bauch zur Kamera gekippt). */
 const FALLEN_TILT_X = -1.25;
 
@@ -163,19 +159,51 @@ interface GateRefs {
  * `frustumCulled = false`: ihre statischen Geometrie-Bounds stimmen nach
  * Skelett-Animation nicht mehr, three würde sie sonst fälschlich cullen.
  */
-function useFigureModel(url: string): {
+function useFigureModel(
+  url: string,
+  targetHeight: number,
+  restTiltX = 0,
+): {
   clone: THREE.Object3D;
   animations: THREE.AnimationClip[];
+  /** Skaliert das Modell auf targetHeight (Bounding-Box der Bind-Pose). */
+  fitScale: number;
+  /** Hebt die Unterkante (nach Skala + restTiltX) exakt auf y=0. */
+  groundY: number;
+  /** Zentriert das Modell horizontal im Eltern-Frame. */
+  centerX: number;
+  centerZ: number;
 } {
   const { scene, animations } = useGLTF(url);
-  const clone = useMemo(() => {
+  return useMemo(() => {
     const cloned = cloneSkeleton(scene);
     cloned.traverse((child) => {
       if ((child as THREE.Mesh).isMesh) child.frustumCulled = false;
     });
-    return cloned;
-  }, [scene]);
-  return { clone, animations };
+    // Auto-Fit: Skala und Bodenlage aus der Bounding-Box statt aus fest
+    // vermessenen Werten — ausgetauschte GLBs passen sich damit selbst ein.
+    const restBox = new THREE.Box3().setFromObject(cloned);
+    const restHeight = Math.max(restBox.max.y - restBox.min.y, 1e-6);
+    const fitScale = targetHeight / restHeight;
+    // Bodenlage/Zentrierung nach Skala und Liege-Rotation messen: eine
+    // temporäre Proben-Gruppe wendet beides an, danach wird der Klon
+    // wieder ausgehängt (React-<primitive> re-parented ihn ohnehin).
+    const probe = new THREE.Group();
+    probe.add(cloned);
+    probe.scale.setScalar(fitScale);
+    probe.rotation.x = restTiltX;
+    probe.updateMatrixWorld(true);
+    const fittedBox = new THREE.Box3().setFromObject(probe);
+    probe.remove(cloned);
+    return {
+      clone: cloned,
+      animations,
+      fitScale,
+      groundY: -fittedBox.min.y,
+      centerX: -(fittedBox.min.x + fittedBox.max.x) / 2,
+      centerZ: -(fittedBox.min.z + fittedBox.max.z) / 2,
+    };
+  }, [scene, animations, targetHeight, restTiltX]);
 }
 
 /**
@@ -237,7 +265,8 @@ function RaymanHero({
   reducedMotion: boolean;
 }) {
   const shadowTexture = getSoftShadowTexture();
-  const { clone, animations } = useFigureModel(RAYMAN_HERO_MODEL_URL);
+  const { clone, animations, fitScale, groundY, centerX, centerZ } =
+    useFigureModel(RAYMAN_HERO_MODEL_URL, HERO_TARGET_HEIGHT);
   const { actions } = useAnimations(animations, clone);
   const idleActionRef = useIdleAction(actions, 0);
   const floatRef = useRef<THREE.Group>(null);
@@ -335,7 +364,7 @@ function RaymanHero({
         onPointerOver={handlePointerOver}
         onPointerOut={handlePointerOut}
       >
-        <group scale={HERO_MODEL_SCALE}>
+        <group scale={fitScale} position={[centerX, groundY, centerZ]}>
           <primitive object={clone} />
         </group>
       </group>
@@ -371,7 +400,8 @@ function Rabbid({
   // Der Umgekippte ist ein eigenes Modell (grummeliger Hase mit Möhre) —
   // liegt er erst mal auf dem Rücken, passt der Gesichtsausdruck perfekt.
   const modelUrl = fallen ? RABBID_FALLEN_MODEL_URL : RABBID_MODEL_URL;
-  const { clone, animations } = useFigureModel(modelUrl);
+  const { clone, animations, fitScale, groundY, centerX, centerZ } =
+    useFigureModel(modelUrl, RABBID_TARGET_HEIGHT, fallen ? FALLEN_TILT_X : 0);
   const { actions } = useAnimations(animations, clone);
   const idleActionRef = useIdleAction(actions, phase);
   /** Run-Clip des Umgekippten — Gewicht folgt der Strampel-Hüllkurve. */
@@ -384,8 +414,9 @@ function Rabbid({
   /** Startzeit (clock.elapsedTime) des laufenden Schreis, sonst null. */
   const bwaahStartRef = useRef<number | null>(null);
 
-  const baseBodyY = fallen ? FALLEN_BODY_Y : 0;
-  const modelScale = fallen ? FALLEN_MODEL_SCALE : RABBID_MODEL_SCALE;
+  // Auto-Fit: Bodenlage kommt aus der Bounding-Box (beim Umgekippten nach
+  // der Rücklage-Rotation gemessen) statt aus fest vermessenen Konstanten.
+  const baseBodyY = groundY;
 
   useEffect(() => {
     if (!fallen) return undefined;
@@ -516,13 +547,13 @@ function Rabbid({
 
       <group
         ref={bodyRef}
-        position={[0, baseBodyY, 0]}
+        position={[centerX, baseBodyY, centerZ]}
         rotation={fallen ? [FALLEN_TILT_X, 0, 0] : [0, 0, 0]}
         onClick={handleTap}
         onPointerOver={handlePointerOver}
         onPointerOut={handlePointerOut}
       >
-        <group scale={modelScale}>
+        <group scale={fitScale}>
           <primitive object={clone} />
         </group>
       </group>
