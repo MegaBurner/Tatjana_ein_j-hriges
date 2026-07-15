@@ -100,6 +100,7 @@ const ArcadeModal = ({ isOpen, onClose }: ArcadeModalProps) => {
               ref={canvasRef}
               className="arcade-canvas"
               onPointerDown={() => gameRef.current?.restartOrJump()}
+              onPointerUp={() => gameRef.current?.jumpRelease()}
             />
           )}
 
@@ -107,6 +108,8 @@ const ArcadeModal = ({ isOpen, onClose }: ArcadeModalProps) => {
           <div className="arcade-touch-controls">
             <button
               onPointerDown={() => gameRef.current?.restartOrJump()}
+              onPointerUp={() => gameRef.current?.jumpRelease()}
+              onPointerLeave={() => gameRef.current?.jumpRelease()}
               aria-label="Springen"
             >
               ↑ Springen

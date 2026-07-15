@@ -17,7 +17,8 @@ import {
   FAST_FALL_VELOCITY,
   GRAVITY,
   GROUND_Y,
-  JUMP_VELOCITY,
+  JUMP_VELOCITY_HOLD,
+  JUMP_VELOCITY_TAP,
   MAX_SPEED,
   MILESTONE_STEP,
   PLAYER_HITBOX,
@@ -41,18 +42,24 @@ const STEP = 1 / 120;
 const MAX_FRAME_DELTA = 0.25;
 
 // Animations-Taktung (s pro Frame)
-const RUN_FRAME_TIME = 0.13;
+// Lauf: am Anfang bewusst gemächlich (~4 fps), skaliert invers mit dem Tempo,
+// wird also mit steigender Geschwindigkeit spürbar schneller.
+const RUN_FRAME_TIME = 0.26;
 const DUCK_FRAME_TIME = 0.14;
 const IDLE_FRAME_TIME = 0.35;
 const BIRD_FRAME_TIME = 0.08;
 const WAVE_FRAME_TIME = 0.28;
 const HEARTS_FRAME_TIME = 0.24;
 
+// Beide Figuren stehen minimal in den Sand eingelassen (Füße auf Bodenlinie
+// statt darüber schwebend).
+const FOOT_EMBED = 14;
+
 // Tatjana am rechten Rand: gleiche Bodenebene wie der Spieler, kein
 // Hindernis — Kakteen/Vögel ziehen hinter ihr vorbei.
 const LADY_X = VIEW_W - 64;
 const LADY_SCALE = 0.3;
-const LADY_BASELINE = GROUND_Y;
+const LADY_BASELINE = GROUND_Y + FOOT_EMBED;
 
 const GROUND_SCALE = 0.6;
 /** Oberer Teil der Bodenkachel (Felsen) wird übersprungen — nur der
@@ -148,6 +155,10 @@ export class DinoGame {
   private playerBottom = GROUND_Y;
   private velocityY = 0;
   private isDucking = false;
+  /** Variable Sprunghöhe: true zwischen Sprung-Start und Loslassen. Wird der
+   *  Sprung früh losgelassen (Tap), kappt jumpRelease die Aufwärtsgeschwindig-
+   *  keit auf JUMP_VELOCITY_TAP → niedrigerer Sprung. Halten = voller Sprung. */
+  private isJumpHeld = false;
 
   private obstacles: Obstacle[] = [];
   private untilSpawn = 600;
@@ -169,6 +180,7 @@ export class DinoGame {
   private onKeyDown = (event: KeyboardEvent) => {
     if (event.code === "Space" || event.code === "ArrowUp") {
       event.preventDefault();
+      if (event.repeat) return; // Taste gehalten: kein Re-Trigger (Auto-Repeat)
       this.restartOrJump();
     } else if (event.code === "ArrowDown") {
       event.preventDefault();
@@ -177,7 +189,8 @@ export class DinoGame {
   };
 
   private onKeyUp = (event: KeyboardEvent) => {
-    if (event.code === "ArrowDown") this.duckOff();
+    if (event.code === "Space" || event.code === "ArrowUp") this.jumpRelease();
+    else if (event.code === "ArrowDown") this.duckOff();
   };
 
   constructor(canvas: HTMLCanvasElement, atlas: Atlas) {
@@ -272,7 +285,20 @@ export class DinoGame {
   jump(): void {
     if (this.phase !== "running") return;
     if (this.playerBottom >= GROUND_Y) {
-      this.velocityY = JUMP_VELOCITY;
+      // Voller Sprung; jumpRelease kappt ihn beim frühen Loslassen (Tap).
+      this.velocityY = JUMP_VELOCITY_HOLD;
+      this.isJumpHeld = true;
+    }
+  }
+
+  /** Sprungtaste losgelassen: solange der Spieler noch steigt, wird die
+   *  Aufwärtsgeschwindigkeit auf die Tap-Höhe gekappt (kurzer Druck =
+   *  niedriger, Halten = voller Sprung). */
+  jumpRelease(): void {
+    if (!this.isJumpHeld) return;
+    this.isJumpHeld = false;
+    if (this.velocityY < JUMP_VELOCITY_TAP) {
+      this.velocityY = JUMP_VELOCITY_TAP;
     }
   }
 
@@ -299,6 +325,7 @@ export class DinoGame {
     this.playerBottom = GROUND_Y;
     this.velocityY = 0;
     this.isDucking = false;
+    this.isJumpHeld = false;
     this.obstacles = [];
     this.untilSpawn = 600;
     this.hearts = [];
@@ -335,6 +362,7 @@ export class DinoGame {
     if (this.playerBottom >= GROUND_Y) {
       this.playerBottom = GROUND_Y;
       this.velocityY = 0;
+      this.isJumpHeld = false;
     }
 
     // Hindernisse bewegen/spawnen/aufräumen
@@ -435,16 +463,16 @@ export class DinoGame {
       return;
     }
     const distance = next.x - PLAYER_X;
-    const lowBird =
-      next.kind === "bird" && next.bottomY > GROUND_Y - PLAYER_HITBOX.h + 20;
-    if (lowBird) {
-      // Tiefflieger: ducken, sobald er nah ist.
-      if (distance < 150 && distance > -40) this.duckOn();
+    if (next.kind === "bird") {
+      // Kopfhoher Vogel: ducken. Hochfliegender Vogel: einfach durchlaufen
+      // (ein Sprung würde hineinlaufen) — kein Springen.
+      const duckBird = next.bottomY > GROUND_Y - PLAYER_HITBOX.h;
+      if (duckBird && distance < 170 && distance > -40) this.duckOn();
       else this.duckOff();
       return;
     }
     if (this.isDucking) this.duckOff();
-    // Kaktus / hoher Vogel: rechtzeitig springen (Distanz tempoabhängig).
+    // Kaktus: rechtzeitig springen (Distanz tempoabhängig).
     const jumpTrigger = 60 + this.speed * 0.28;
     if (grounded && distance < jumpTrigger && distance > 0) this.jump();
   }
@@ -562,7 +590,7 @@ export class DinoGame {
       this.atlas,
       frame,
       PLAYER_X,
-      this.playerBottom,
+      this.playerBottom + FOOT_EMBED,
       PLAYER_SCALE,
     );
   }
@@ -577,7 +605,16 @@ export class DinoGame {
             ]
           : this.atlas.frames[o.frameName];
       if (!frame) continue;
-      drawFrame(ctx, this.atlas, frame, o.x, o.bottomY, o.scale);
+      // Vögel fliegen nach links (dem Spieler entgegen) → spiegeln.
+      drawFrame(
+        ctx,
+        this.atlas,
+        frame,
+        o.x,
+        o.bottomY,
+        o.scale,
+        o.kind === "bird",
+      );
     }
   }
 
@@ -601,44 +638,48 @@ export class DinoGame {
   }
 
   private drawReadyOverlay(ctx: CanvasRenderingContext2D): void {
+    // Text im oberen Drittel — hält den Himmel frei, ohne Spieler/Boden
+    // zu überdecken.
+    const cy = VIEW_H * 0.32;
     ctx.fillStyle = COLORS.text;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.font = "bold 26px 'Courier New', monospace";
-    ctx.fillText("Lauf zu ihr!", VIEW_W / 2, 74);
-    ctx.font = "16px 'Courier New', monospace";
+    ctx.font = "bold 34px 'Courier New', monospace";
+    ctx.fillText("Lauf zu ihr!", VIEW_W / 2, cy);
+    ctx.font = "18px 'Courier New', monospace";
     ctx.fillText(
       "Leertaste / Tippen: Springen — Pfeil runter: Ducken",
       VIEW_W / 2,
-      108,
+      cy + 42,
     );
     // Dezentes Blinken, damit klar ist: hier darf gedrückt werden.
     if (this.frozen || Math.floor(this.elapsed * 2) % 2 === 0) {
-      ctx.font = "bold 16px 'Courier New', monospace";
+      ctx.font = "bold 18px 'Courier New', monospace";
       ctx.fillStyle = COLORS.accent;
-      ctx.fillText("Drück Leertaste oder tippe zum Start", VIEW_W / 2, 140);
+      ctx.fillText("Drück Leertaste oder tippe zum Start", VIEW_W / 2, cy + 80);
     }
   }
 
   private drawGameOverOverlay(ctx: CanvasRenderingContext2D): void {
     ctx.fillStyle = "rgba(60, 45, 35, 0.45)";
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    const cy = VIEW_H * 0.4;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillStyle = "#fff6ea";
-    ctx.font = "bold 30px 'Courier New', monospace";
-    ctx.fillText("G A M E   O V E R", VIEW_W / 2, 92);
+    ctx.font = "bold 40px 'Courier New', monospace";
+    ctx.fillText("G A M E   O V E R", VIEW_W / 2, cy);
     if (this.isNewBest) {
       ctx.fillStyle = "#ffb3c1";
-      ctx.font = "bold 20px 'Courier New', monospace";
-      ctx.fillText(`Neuer Rekord: ${pad5(this.score)}!`, VIEW_W / 2, 130);
+      ctx.font = "bold 24px 'Courier New', monospace";
+      ctx.fillText(`Neuer Rekord: ${pad5(this.score)}!`, VIEW_W / 2, cy + 50);
     }
     ctx.fillStyle = "#fff6ea";
-    ctx.font = "16px 'Courier New', monospace";
+    ctx.font = "18px 'Courier New', monospace";
     ctx.fillText(
       "Leertaste oder Tippen für noch einen Versuch",
       VIEW_W / 2,
-      this.isNewBest ? 164 : 138,
+      cy + (this.isNewBest ? 92 : 50),
     );
   }
 }

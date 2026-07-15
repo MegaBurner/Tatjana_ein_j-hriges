@@ -5,7 +5,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1.25rem;
+  padding: 0.75rem;
   background: rgba(24, 17, 12, 0.72);
   backdrop-filter: blur(6px);
 }
@@ -14,20 +14,28 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  max-width: min(1680px, 96vw);
-  width: 100%;
+  align-items: center;
+  gap: 0.6rem;
+  /* Karte umschließt nur den Canvas (fit-content) — keine feste Breite,
+     damit nichts über das gesperrte 16:9 hinaus gedehnt wird. */
+  width: fit-content;
+  max-width: 99vw;
   outline: none;
-  padding: 1.1rem 1.1rem 0.9rem;
-  border-radius: 18px;
+  padding: 0.7rem 0.7rem 0.55rem;
+  border-radius: 16px;
   background: #241b14;
   border: 1px solid rgba(232, 199, 125, 0.45);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
 }
 
+/* Größtmögliches 16:9-Rechteck, das in Breite UND Höhe passt — der
+   kleinere der beiden Grenzwerte gewinnt, Seitenverhältnis bleibt fix
+   (kein Stretch, keine Verzerrung der Pixel-Sprites). */
 .arcade-canvas {
-  width: 100%;
-  aspect-ratio: 960 / 340;
+  aspect-ratio: 960 / 540;
+  width: min(97vw, calc((94vh - 3rem) * 960 / 540));
+  max-width: 100%;
+  height: auto;
   display: block;
   border-radius: 10px;
   background: #fdf6ec;

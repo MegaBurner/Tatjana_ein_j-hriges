@@ -5,12 +5,17 @@
  */
 
 export const VIEW_W = 960;
-export const VIEW_H = 340;
-export const GROUND_Y = 300;
+// 16:9-Spielfeld — füllt Fullscreen-Overlay und Laptop-Display fast randlos;
+// oberhalb der Fußlinie bleibt viel Himmel (Sprünge/Vögel) wie beim Original.
+export const VIEW_H = 540;
+export const GROUND_Y = 470;
 
 // --- Physik (px/s bzw. px/s²) ----------------------------------------------
 export const GRAVITY = 2400;
-export const JUMP_VELOCITY = -830;
+/** Variable Sprunghöhe: kurzer Tap ~ +10 %, Halten bis ~ +20 % der früheren
+ *  Basis-Höhe (H ∝ v²). Basis war -830 → Tap = -830·√1.1, Hold = -830·√1.2. */
+export const JUMP_VELOCITY_TAP = -871;
+export const JUMP_VELOCITY_HOLD = -909;
 /** Pfeil-runter in der Luft: schneller Sturzflug wie beim Chrome-Dino. */
 export const FAST_FALL_VELOCITY = 900;
 
@@ -30,9 +35,11 @@ export function difficulty(speed: number): number {
 // --- Spieler -----------------------------------------------------------------
 export const PLAYER_X = 130;
 export const PLAYER_SCALE = 0.34;
-/** Hitboxen fix statt aus Frame-Maßen: Run-Frames enthalten Staubwolken. */
-export const PLAYER_HITBOX = { w: 36, h: 76 } as const;
-export const PLAYER_HITBOX_DUCK = { w: 46, h: 60 } as const;
+/** Hitboxen fix statt aus Frame-Maßen: Run-Frames enthalten Staubwolken.
+ *  Die Duck-Box ist deutlich flacher (echtes Wegducken) — nur so kommt der
+ *  Spieler unter kopfhohen Vögeln durch, während er stehend kollidiert. */
+export const PLAYER_HITBOX = { w: 36, h: 78 } as const;
+export const PLAYER_HITBOX_DUCK = { w: 48, h: 42 } as const;
 
 // --- Score -------------------------------------------------------------------
 export const SCORE_PER_PX = 1 / 8;
@@ -45,11 +52,15 @@ const BIRD_SCALE = 0.36;
 const BIRD_MIN_DIFFICULTY = 0.35;
 const BIRD_PROBABILITY_EARLY = 0.12;
 const BIRD_PROBABILITY_LATE = 0.32;
-/** Flughöhen (Abstand Vogel-Unterkante zur Fußlinie): niedrig = ducken!,
- *  hoch = einfach durchlaufen. Werte gegen die Hitboxen ausbalanciert:
- *  niedriger Vogel trifft den stehenden Spieler und verfehlt den geduckten. */
-const BIRD_LOW_LIFT = 56;
-const BIRD_HIGH_LIFT = 108;
+/** Flughöhen (Abstand Vogel-Unterkante zur Fußlinie):
+ *  - DUCK: auf Kopfhöhe des stehenden Spielers — Stehen kollidiert, nur
+ *    Ducken kommt durch (gegen PLAYER_HITBOX/PLAYER_HITBOX_DUCK gerechnet).
+ *  - HIGH: auf Sprung-Scheitelhöhe — am Boden läuft man drunter durch, ein
+ *    Sprung endet aber im Vogel. Bestraft reflexhaftes Springen. */
+const BIRD_DUCK_LIFT = 48;
+const BIRD_HIGH_LIFT = 175;
+/** Anteil der Duck-Vögel an allen Vögeln (Rest = HIGH). */
+const BIRD_DUCK_SHARE = 0.65;
 
 const CACTUS_DEFS = [
   { frame: "cactus/small", scale: 0.5 },
@@ -98,7 +109,7 @@ export function spawnObstacle(
   if (rng() < birdProbability) {
     const prefix = rng() < 0.5 ? "bird/yellow" : "bird/red";
     const src = sizeOf(`${prefix}_0`);
-    const lift = rng() < 0.5 ? BIRD_LOW_LIFT : BIRD_HIGH_LIFT;
+    const lift = rng() < BIRD_DUCK_SHARE ? BIRD_DUCK_LIFT : BIRD_HIGH_LIFT;
     return {
       kind: "bird",
       frameName: prefix,
