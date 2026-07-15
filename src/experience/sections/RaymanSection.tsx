@@ -8,6 +8,7 @@ import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.j
 import { sectionVisibility } from "../useSectionProgress";
 import { usePrefersReducedMotion } from "../../three/hooks/useWebGL";
 import { getSoftShadowTexture } from "../softShadow";
+import { splitDisconnectedParts } from "../../three/meshPartSplitter";
 import {
   preloadRaymanModels,
   RABBID_FALLEN_MODEL_URL,
@@ -37,15 +38,51 @@ const INTERACTION_VISIBILITY_THRESHOLD = 0.3;
 // Bodenlage werden zur Laufzeit per Bounding-Box aus dem geladenen GLB
 // berechnet (Auto-Fit in useFigureModel) — dadurch funktionieren auch
 // ausgetauschte Modelle in public/models/ ohne Code-Anpassung.
-/** Held (hero.glb): Zielhöhe in lokalen Einheiten. */
-const HERO_TARGET_HEIGHT = 1.5;
+/** Held (hero.glb): Zielhöhe in lokalen Einheiten — deutlich größer als
+ *  die Hasen (Kanon-Relation: Held ~doppelt so hoch wie ein Hase). */
+const HERO_TARGET_HEIGHT = 1.9;
 /** Hasen (rabbid.glb / rabbid-fallen.glb): Zielhöhe inkl. Ohren. */
-const RABBID_TARGET_HEIGHT = 1.2;
+const RABBID_TARGET_HEIGHT = 1.1;
 
 // --- Held: Idle ------------------------------------------------------------
 /** Sinus-Schweben des Helden: ±Amplitude über eine Periode von ~3s. */
 const HERO_HOVER_AMPLITUDE = 0.05;
 const HERO_HOVER_OMEGA = (Math.PI * 2) / 3;
+
+// --- Held: Pseudo-Rig für statisches Mesh ohne Bones -------------------------
+// Das Haupt-Mesh wird in räumlich getrennte Teile zerlegt (bei dieser Figur
+// schweben die Hände frei neben dem Körper); die zwei äußersten Teile werden
+// aus der eingebackenen T-Pose nach unten-innen posiert und kreisen im Idle.
+// Achsen im lokalen FBX-Space des Meshes: x = seitlich, y = Tiefe, z = Höhe.
+/** Unterhalb dieser Teilzahl wird nicht gesplittet (Fremdmodell → No-op). */
+const HERO_MIN_SPLIT_PARTS = 3;
+/** Mini-Fragmente (Details) kommen als Hände nicht in Frage. */
+const HERO_HAND_MIN_SIZE = 0.08;
+/** Hände müssen klar seitlich sitzen, sonst kein Posieren (Fremdmodell). */
+const HERO_HAND_MIN_SIDE_OFFSET = 0.4;
+// Heldenpose: Eine Hand zeigt gestreckt nach oben (Sieger-Geste), die andere
+// hängt angewinkelt als „Faust" neben dem Körper. Echte Finger gibt es im
+// eingebackenen Mesh nicht — die Faust entsteht über Winkel + Position.
+/** Zeigehand: seitlicher Abstand (Anteil der Originalposition) und Höhe. */
+const HERO_RAISED_HAND_INWARD = 0.6;
+const HERO_RAISED_HAND_HEIGHT_FRACTION = 1.04;
+/** Drehung der Zeigehand, damit die Handfläche nach oben weist. */
+const HERO_RAISED_HAND_TILT = Math.PI / 2;
+/** Fausthand: bleibt deutlich neben dem Körper, auf Hüfthöhe, angewinkelt. */
+const HERO_FIST_HAND_INWARD = 0.62;
+const HERO_FIST_HAND_HEIGHT_FRACTION = 0.4;
+const HERO_FIST_HAND_TILT = 0.55;
+/** Leicht vor den Körper (FBX-Tiefenachse). */
+const HERO_HAND_FORWARD_OFFSET = 0.08;
+/** Kopf-Cluster: Drehung um die Höhenachse Richtung Kamera/Bildmitte.
+ *  (Screenshot-verifiziert: negativ drehte das Gesicht nach Bildrechts weg.) */
+const HERO_HEAD_YAW = 1.15;
+/** Kopf sitzt im oberen Figurdrittel und nahe der Mittelachse. */
+const HERO_HEAD_MIN_HEIGHT_FRACTION = 0.6;
+const HERO_HEAD_MAX_SIDE_OFFSET = 0.45;
+/** Idle: Hände wippen dezent um ihre Pose (klein, damit die Geste lesbar bleibt). */
+const HERO_HAND_ORBIT_RADIUS = 0.04;
+const HERO_HAND_ORBIT_OMEGA = 1.3;
 
 // --- Held: Helikopter-Lift (Klick) — bewusst kräftig -------------------------
 const HELI_DURATION_S = 1.6;
@@ -68,8 +105,8 @@ const KICK_ENVELOPE_OMEGA = 0.9;
 const KICK_ENVELOPE_POWER = 8;
 const KICK_SHAKE_SPEED = 18;
 const KICK_BODY_SHAKE = 0.05;
-/** Rücklage des Umgekippten (fast flach, Bauch zur Kamera gekippt). */
-const FALLEN_TILT_X = -1.25;
+/** Bauchlage des Umgekippten (flach, Gesicht Richtung Boden). */
+const FALLEN_TILT_X = 1.55;
 
 // --- Rabbid: „BWAAAH" (Klick) — bewusst kräftig ------------------------------
 /** Lebensdauer des gesamten Schrei-Effekts inkl. Label-Fade. */
@@ -152,17 +189,110 @@ interface GateRefs {
 // GLB-Helfer
 // ============================================================================
 
+/** Additive Bone-Rotationen (rad) per Namens-Prefix — Sketchfab-Rigs hängen
+ *  Suffixe an ("ArmUpper.L_014"), daher startsWith-Match. Bones, die es im
+ *  geladenen Modell nicht gibt, werden still übersprungen. */
+type BonePose = Readonly<Record<string, readonly [number, number, number]>>;
+
+/** Neugieriger Steher: linker Arm gesenkt, rechter winkt hoch, Kopf
+ *  deutlich schräg Richtung Kamera, Ohren asymmetrisch — lebendig statt T-Pose. */
+const STANDING_BONE_POSE_CURIOUS: BonePose = {
+  "ArmUpper.L": [-0.4, 0, 1.2],
+  "ArmUpper.R": [-1.6, 0, -0.7],
+  "ArmLower.L": [0.2, 0, 0.3],
+  "ArmLower.R": [-0.6, 0, -0.2],
+  "EarUpper.L": [0.3, 0, 0.25],
+  "EarUpper.R": [-0.2, 0, -0.4],
+  // Kopf-Yaw kompensiert die Körperdrehung der Instanz (rotationY −0.35),
+  // damit der Blick direkt in die Kamera geht.
+  Head: [0.1, 0.35, 0.1],
+};
+
+/** Jubel-Steher: beide Arme hoch gerissen (BWAAAH-bereit), Kopf leicht
+ *  in den Nacken, Ohren nach hinten geweht. */
+const STANDING_BONE_POSE_CHEER: BonePose = {
+  "ArmUpper.L": [-1.7, 0, 0.5],
+  "ArmUpper.R": [-1.7, 0, -0.5],
+  "ArmLower.L": [-0.4, 0, 0.15],
+  "ArmLower.R": [-0.4, 0, -0.15],
+  "EarUpper.L": [-0.35, 0, 0.2],
+  "EarUpper.R": [-0.35, 0, -0.2],
+  // Kopf-Yaw kompensiert die Körperdrehung der Instanz (rotationY +0.3).
+  Head: [-0.1, -0.3, 0],
+};
+
+/** Bäuchlings aufgeschlagener Hase (Blick zum Boden): Arme und Beine platt
+ *  seitlich ausgebreitet, Ohren flach weggeklappt — comichaft „umgekippt". */
+const FALLEN_BONE_POSE: BonePose = {
+  "ArmUpper.L": [0, 0, 1.4],
+  "ArmUpper.R": [0, 0, -1.4],
+  "ArmLower.L": [0.2, 0, 0.2],
+  "ArmLower.R": [0.2, 0, -0.2],
+  "LegUpper.L": [0, 0, 0.35],
+  "LegUpper.R": [0, 0, -0.35],
+  "EarLower.L": [0, 0, 0.7],
+  "EarLower.R": [0, 0, -0.7],
+};
+
+/** Blickrichtungs-Korrektur (Yaw) der Modelle, damit die Figuren zur Kamera
+ *  schauen — Exporte zeigen je nach Quelle nach +Z oder −Z. Wirkt auf einer
+ *  eigenen Wrapper-Gruppe UM das zentrierte Modell. */
+const HERO_MODEL_YAW = 0;
+const RABBID_MODEL_YAW = 0;
+
+/** Misst die Welt-Bounding-Box inklusive Skinning: SkinnedMeshes backen
+ *  ihre AKTUELLE Bone-Pose in computeBoundingBox ein — Box3.setFromObject
+ *  würde nur die Bind-Geometrie messen, wodurch geriggte Modelle nach dem
+ *  Auto-Fit in der Luft schweben oder im Boden stecken. */
+function measureWorldBox(root: THREE.Object3D, target: THREE.Box3): THREE.Box3 {
+  root.updateMatrixWorld(true);
+  target.makeEmpty();
+  const childBox = new THREE.Box3();
+  root.traverse((child) => {
+    if (!(child as THREE.Mesh).isMesh) return;
+    const skinned = child as THREE.SkinnedMesh;
+    if (skinned.isSkinnedMesh) {
+      skinned.computeBoundingBox();
+      childBox.copy(skinned.boundingBox);
+    } else {
+      const geometry = (child as THREE.Mesh).geometry;
+      if (!geometry.boundingBox) geometry.computeBoundingBox();
+      childBox.copy(geometry.boundingBox as THREE.Box3);
+    }
+    childBox.applyMatrix4(child.matrixWorld);
+    target.union(childBox);
+  });
+  return target;
+}
+
+/** Wendet eine BonePose additiv auf alle passenden Bones an. */
+function applyBonePose(root: THREE.Object3D, pose: BonePose): void {
+  root.traverse((child) => {
+    if (!(child as THREE.Bone).isBone) return;
+    for (const prefix of Object.keys(pose)) {
+      if (!child.name.startsWith(prefix)) continue;
+      const [rx, ry, rz] = pose[prefix];
+      child.rotation.x += rx;
+      child.rotation.y += ry;
+      child.rotation.z += rz;
+      break;
+    }
+  });
+}
+
 /**
  * Lädt ein GLB und liefert einen unabhängigen Klon (SkeletonUtils.clone —
  * nötig, weil useGLTF eine gecachte Szene liefert und die stehenden Hasen
  * dasselbe Modell zweimal verwenden). Skinned Meshes bekommen
  * `frustumCulled = false`: ihre statischen Geometrie-Bounds stimmen nach
  * Skelett-Animation nicht mehr, three würde sie sonst fälschlich cullen.
+ * Optional wird eine BonePose angewandt (für geriggte Modelle ohne Clips).
  */
 function useFigureModel(
   url: string,
   targetHeight: number,
   restTiltX = 0,
+  bonePose?: BonePose,
 ): {
   clone: THREE.Object3D;
   animations: THREE.AnimationClip[];
@@ -180,11 +310,14 @@ function useFigureModel(
     cloned.traverse((child) => {
       if ((child as THREE.Mesh).isMesh) child.frustumCulled = false;
     });
-    // Auto-Fit: Skala und Bodenlage aus der Bounding-Box statt aus fest
-    // vermessenen Werten — ausgetauschte GLBs passen sich damit selbst ein.
-    const restBox = new THREE.Box3().setFromObject(cloned);
+    // Auto-Fit: Die SKALA wird an der neutralen Bind-Pose gemessen — eine
+    // BonePose (z.B. hochgerissene Arme) darf die Figur nicht schrumpfen,
+    // weil sie die Boxhöhe vergrößert. Die Pose kommt danach und fließt
+    // nur in Bodenlage/Zentrierung ein.
+    const restBox = measureWorldBox(cloned, new THREE.Box3());
     const restHeight = Math.max(restBox.max.y - restBox.min.y, 1e-6);
     const fitScale = targetHeight / restHeight;
+    if (bonePose) applyBonePose(cloned, bonePose);
     // Bodenlage/Zentrierung nach Skala und Liege-Rotation messen: eine
     // temporäre Proben-Gruppe wendet beides an, danach wird der Klon
     // wieder ausgehängt (React-<primitive> re-parented ihn ohnehin).
@@ -192,8 +325,7 @@ function useFigureModel(
     probe.add(cloned);
     probe.scale.setScalar(fitScale);
     probe.rotation.x = restTiltX;
-    probe.updateMatrixWorld(true);
-    const fittedBox = new THREE.Box3().setFromObject(probe);
+    const fittedBox = measureWorldBox(probe, new THREE.Box3());
     probe.remove(cloned);
     return {
       clone: cloned,
@@ -203,7 +335,7 @@ function useFigureModel(
       centerX: -(fittedBox.min.x + fittedBox.max.x) / 2,
       centerZ: -(fittedBox.min.z + fittedBox.max.z) / 2,
     };
-  }, [scene, animations, targetHeight, restTiltX]);
+  }, [scene, animations, targetHeight, restTiltX, bonePose]);
 }
 
 /**
@@ -269,6 +401,137 @@ function RaymanHero({
     useFigureModel(RAYMAN_HERO_MODEL_URL, HERO_TARGET_HEIGHT);
   const { actions } = useAnimations(animations, clone);
   const idleActionRef = useIdleAction(actions, 0);
+
+  // Pseudo-Rig: Haupt-Mesh in getrennte Teile zerlegen, die zwei äußersten
+  // (schwebende Hände) aus der T-Pose absenken. Fremde/verbundene Modelle
+  // liefern null → alles bleibt unangetastet.
+  const heroHands = useMemo(() => {
+    let biggest: THREE.Mesh | null = null;
+    let biggestVolume = 0;
+    clone.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh || (mesh as THREE.SkinnedMesh).isSkinnedMesh) return;
+      if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+      const size = (mesh.geometry.boundingBox as THREE.Box3).getSize(
+        new THREE.Vector3(),
+      );
+      const volume = size.x * size.y * size.z;
+      if (volume > biggestVolume) {
+        biggestVolume = volume;
+        biggest = mesh;
+      }
+    });
+    if (!biggest) return null;
+    const sourceMesh: THREE.Mesh = biggest;
+    const parts = splitDisconnectedParts(sourceMesh);
+    if (parts.length < HERO_MIN_SPLIT_PARTS) return null;
+
+    // Teile an derselben Baumstelle einhängen (Transform übernehmen).
+    const holder = new THREE.Group();
+    holder.position.copy(sourceMesh.position);
+    holder.quaternion.copy(sourceMesh.quaternion);
+    holder.scale.copy(sourceMesh.scale);
+    sourceMesh.parent?.add(holder);
+    for (const part of parts) holder.add(part.mesh);
+    sourceMesh.removeFromParent();
+
+    // Figurhöhe im FBX-Space (z = Höhe) aus den Teilen ableiten.
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (const part of parts) {
+      minZ = Math.min(minZ, part.center.z - part.size.z / 2);
+      maxZ = Math.max(maxZ, part.center.z + part.size.z / 2);
+    }
+    const height = maxZ - minZ;
+
+    // Hände = die zwei größten-|x|-Teile auf gegenüberliegenden Seiten.
+    const candidates = parts
+      .filter(
+        (part) =>
+          Math.max(part.size.x, part.size.y, part.size.z) > HERO_HAND_MIN_SIZE,
+      )
+      .sort((a, b) => Math.abs(b.center.x) - Math.abs(a.center.x));
+    const first = candidates[0];
+    const second = candidates.find(
+      (part) =>
+        part !== first &&
+        Math.sign(part.center.x) !== Math.sign(first?.center.x ?? 0),
+    );
+    if (
+      !first ||
+      !second ||
+      Math.abs(first.center.x) < HERO_HAND_MIN_SIDE_OFFSET
+    ) {
+      return null;
+    }
+    const left = first.center.x < 0 ? first : second;
+    const right = left === first ? second : first;
+
+    // Rechte Hand zeigt gestreckt nach oben (Sieger-Geste)…
+    right.mesh.position.x = right.center.x * HERO_RAISED_HAND_INWARD;
+    right.mesh.position.z = minZ + height * HERO_RAISED_HAND_HEIGHT_FRACTION;
+    right.mesh.position.y = right.center.y + HERO_HAND_FORWARD_OFFSET;
+    right.mesh.rotation.x = -HERO_RAISED_HAND_TILT;
+    // …die linke hängt angewinkelt als „Faust" neben dem Körper.
+    left.mesh.position.x = left.center.x * HERO_FIST_HAND_INWARD;
+    left.mesh.position.z = minZ + height * HERO_FIST_HAND_HEIGHT_FRACTION;
+    left.mesh.position.y = left.center.y + HERO_HAND_FORWARD_OFFSET;
+    left.mesh.rotation.x = HERO_FIST_HAND_TILT;
+
+    // Kopf-Cluster (oberes Figurdrittel, nahe Mittelachse, kein Mini-Teil)
+    // Richtung Kamera/Bildmitte drehen.
+    const head = parts.find(
+      (part) =>
+        part !== first &&
+        part !== second &&
+        part.center.z - minZ > height * HERO_HEAD_MIN_HEIGHT_FRACTION &&
+        Math.abs(part.center.x) < HERO_HEAD_MAX_SIDE_OFFSET &&
+        Math.max(part.size.x, part.size.y, part.size.z) > HERO_HAND_MIN_SIZE,
+    );
+    if (head) {
+      // Kopf-Gruppe mit Pivot am Kopf-Zentrum: Der Kopf-Cluster UND die
+      // separaten Gesichts-Meshes (Augen/Mund sind eigene Nodes!) drehen
+      // gemeinsam — sonst versinken die Augen im gedrehten Kopf.
+      const headGroup = new THREE.Group();
+      headGroup.position.copy(head.center);
+      holder.add(headGroup);
+      head.mesh.position.sub(head.center);
+      headGroup.add(head.mesh);
+      const partMeshes = new Set(parts.map((part) => part.mesh));
+      const faceMeshes: THREE.Mesh[] = [];
+      clone.traverse((child) => {
+        const mesh = child as THREE.Mesh;
+        if (!mesh.isMesh || partMeshes.has(mesh)) return;
+        if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+        const center = (mesh.geometry.boundingBox as THREE.Box3).getCenter(
+          new THREE.Vector3(),
+        );
+        if (center.z - minZ > height * HERO_HEAD_MIN_HEIGHT_FRACTION) {
+          faceMeshes.push(mesh);
+        }
+      });
+      for (const mesh of faceMeshes) {
+        headGroup.add(mesh);
+        mesh.position.set(-head.center.x, -head.center.y, -head.center.z);
+      }
+      headGroup.rotation.z = HERO_HEAD_YAW;
+    }
+
+    return {
+      left: left.mesh,
+      right: right.mesh,
+      baseLeft: left.mesh.position.clone(),
+      baseRight: right.mesh.position.clone(),
+    };
+  }, [clone]);
+
+  // In eine Ref gespiegelt (React-Compiler-Immutability: Hook-Rückgaben
+  // nicht direkt mutieren; imperative Writes laufen über die Ref).
+  const heroHandsRef = useRef<typeof heroHands>(null);
+  useEffect(() => {
+    heroHandsRef.current = heroHands;
+  }, [heroHands]);
+
   const floatRef = useRef<THREE.Group>(null);
   const shadowRef = useRef<THREE.Mesh>(null);
   /** Tap-Anfrage aus dem Event-Handler — wird im useFrame-Loop konsumiert. */
@@ -333,6 +596,21 @@ function RaymanHero({
     float.position.y =
       Math.sin(t * HERO_HOVER_OMEGA) * HERO_HOVER_AMPLITUDE + lift;
 
+    // Pseudo-Rig-Idle: die freigestellten Hände kreisen gegenphasig um ihre
+    // Ruheposition (FBX-Space: x seitlich, y Tiefe — Höhe bleibt konstant).
+    const hands = heroHandsRef.current;
+    if (hands) {
+      const orbit = t * HERO_HAND_ORBIT_OMEGA;
+      hands.left.position.x =
+        hands.baseLeft.x + Math.cos(orbit) * HERO_HAND_ORBIT_RADIUS;
+      hands.left.position.y =
+        hands.baseLeft.y + Math.sin(orbit) * HERO_HAND_ORBIT_RADIUS;
+      hands.right.position.x =
+        hands.baseRight.x + Math.cos(orbit + Math.PI) * HERO_HAND_ORBIT_RADIUS;
+      hands.right.position.y =
+        hands.baseRight.y + Math.sin(orbit + Math.PI) * HERO_HAND_ORBIT_RADIUS;
+    }
+
     // Schatten schrumpft beim Abheben leicht.
     const shadow = shadowRef.current;
     if (shadow) {
@@ -364,8 +642,10 @@ function RaymanHero({
         onPointerOver={handlePointerOver}
         onPointerOut={handlePointerOut}
       >
-        <group scale={fitScale} position={[centerX, groundY, centerZ]}>
-          <primitive object={clone} />
+        <group rotation={[0, HERO_MODEL_YAW, 0]}>
+          <group scale={fitScale} position={[centerX, groundY, centerZ]}>
+            <primitive object={clone} />
+          </group>
         </group>
       </group>
     </group>
@@ -381,6 +661,7 @@ function Rabbid({
   rotationY,
   scale,
   fallen = false,
+  bonePose,
   wobbleFreq,
   phase,
   gates,
@@ -395,13 +676,20 @@ function Rabbid({
   phase: number;
   gates: GateRefs;
   reducedMotion: boolean;
+  /** Pose-Variante für Steher (Default: neugierig); Liegende posen fix. */
+  bonePose?: BonePose;
 }) {
   const shadowTexture = getSoftShadowTexture();
   // Der Umgekippte ist ein eigenes Modell (grummeliger Hase mit Möhre) —
   // liegt er erst mal auf dem Rücken, passt der Gesichtsausdruck perfekt.
   const modelUrl = fallen ? RABBID_FALLEN_MODEL_URL : RABBID_MODEL_URL;
   const { clone, animations, fitScale, groundY, centerX, centerZ } =
-    useFigureModel(modelUrl, RABBID_TARGET_HEIGHT, fallen ? FALLEN_TILT_X : 0);
+    useFigureModel(
+      modelUrl,
+      RABBID_TARGET_HEIGHT,
+      fallen ? FALLEN_TILT_X : 0,
+      bonePose ?? (fallen ? FALLEN_BONE_POSE : STANDING_BONE_POSE_CURIOUS),
+    );
   const { actions } = useAnimations(animations, clone);
   const idleActionRef = useIdleAction(actions, phase);
   /** Run-Clip des Umgekippten — Gewicht folgt der Strampel-Hüllkurve. */
@@ -553,8 +841,10 @@ function Rabbid({
         onPointerOver={handlePointerOver}
         onPointerOut={handlePointerOut}
       >
-        <group scale={fitScale}>
-          <primitive object={clone} />
+        <group rotation={[0, RABBID_MODEL_YAW, 0]}>
+          <group scale={fitScale}>
+            <primitive object={clone} />
+          </group>
         </group>
       </group>
 
@@ -640,14 +930,15 @@ export const RaymanScene = ({ index }: SectionProps) => {
             position={[1.75, 0, -0.35]}
             rotationY={0.3}
             scale={0.8}
+            bonePose={STANDING_BONE_POSE_CHEER}
             wobbleFreq={3.8}
             phase={2.1}
             gates={gates}
             reducedMotion={reducedMotion}
           />
           <Rabbid
-            position={[1.15, 0, 0.75]}
-            rotationY={0.5}
+            position={[1.35, 0, 0.8]}
+            rotationY={0.9}
             scale={0.85}
             fallen
             wobbleFreq={2.6}
